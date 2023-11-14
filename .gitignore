@@ -1,0 +1,9 @@
+.DS_Store
+.idea
+/bin
+/build_*
+.launchr
+*.tar
+*.gz
+*.gen.go
+dist/
