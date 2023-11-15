@@ -1,6 +1,7 @@
 package bumpupdated
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -68,6 +69,7 @@ func (r *Resource) UpdateVersion(version string) bool {
 			return false
 		}
 
+		var b bytes.Buffer
 		var meta map[string]interface{}
 		err = yaml.Unmarshal(data, &meta)
 		if err != nil {
@@ -81,13 +83,15 @@ func (r *Resource) UpdateVersion(version string) bool {
 			meta["plasma"] = map[string]interface{}{"version": version}
 		}
 
-		data, err = yaml.Marshal(meta)
+		yamlEncoder := yaml.NewEncoder(&b)
+		yamlEncoder.SetIndent(2)
+		err = yamlEncoder.Encode(&meta)
 		if err != nil {
 			fmt.Printf("Failed to marshal meta file: %v\n", err)
 			return false
 		}
 
-		err = os.WriteFile(metaFile, data, 0600)
+		err = os.WriteFile(metaFile, b.Bytes(), 0600)
 		if err != nil {
 			fmt.Printf("Failed to write meta file: %v\n", err)
 			return false
