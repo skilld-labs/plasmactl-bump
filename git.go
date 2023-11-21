@@ -16,35 +16,45 @@ type BumperRepo struct {
 	commitMessage string
 }
 
-func getRepo() *BumperRepo {
+func getRepo() (*BumperRepo, error) {
 	r, err := git.PlainOpen("./")
-	CheckIfError(err)
+	if err != nil {
+		return nil, err
+	}
 
 	return &BumperRepo{
 		git:           r,
 		name:          "Bumper",
 		mail:          "no-reply@skilld.cloud",
 		commitMessage: "versions bump",
-	}
+	}, nil
 }
 
 // IsOwnCommit checks if the latest commit in the Git repository was made by the bumper.
 func (r *BumperRepo) IsOwnCommit() bool {
 	ref, err := r.git.Head()
-	CheckIfError(err)
+	if err != nil {
+		PromptError(err)
+		return false
+	}
 
 	commit, err := r.git.CommitObject(ref.Hash())
-	CheckIfError(err)
+	if err != nil {
+		PromptError(err)
+		return false
+	}
 
 	return r.name == commit.Author.Name && r.mail == commit.Author.Email
 }
 
 // GetLastCommitShortHash gets the short hash of the latest commit in the Git repository.
-func (r *BumperRepo) GetLastCommitShortHash() string {
+func (r *BumperRepo) GetLastCommitShortHash() (string, error) {
 	ref, err := r.git.Head()
-	CheckIfError(err)
+	if err != nil {
+		return "", err
+	}
 
-	return ref.Hash().String()[:13]
+	return ref.Hash().String()[:13], nil
 }
 
 // getLatestModifiedFiles gets a list of files modified in the latest commit in the Git repository.
@@ -52,18 +62,27 @@ func (r *BumperRepo) getLatestModifiedFiles() ([]string, error) {
 	var modifiedFiles []string
 
 	headRef, err := r.git.Head()
-	CheckIfError(err)
+	if err != nil {
+		return nil, err
+	}
 
 	headCommit, err := r.git.CommitObject(headRef.Hash())
-	CheckIfError(err)
+	if err != nil {
+		return nil, err
+	}
+
 	headTree, _ := headCommit.Tree()
 
 	parentCommit, err := headCommit.Parent(0)
-	CheckIfError(err)
-	parentTree, _ := parentCommit.Tree()
+	if err != nil {
+		return nil, err
+	}
 
+	parentTree, _ := parentCommit.Tree()
 	diff, err := parentTree.Diff(headTree)
-	CheckIfError(err)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, ch := range diff {
 		action, _ := ch.Action()

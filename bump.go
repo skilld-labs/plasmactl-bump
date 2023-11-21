@@ -33,14 +33,13 @@ var unversionableFiles = map[string]bool{
 	"README.md": true,
 }
 
-// CheckIfError should be used to naively panics if an error is not nil.
-func CheckIfError(err error) {
+// PromptError prints an error.
+func PromptError(err error) {
 	if err == nil {
 		return
 	}
 
 	fmt.Printf("\x1b[31;1m%s\x1b[0m\n", fmt.Sprintf("error: %s\n", err))
-	os.Exit(1)
 }
 
 // Resource represents a ansible resource
@@ -159,7 +158,11 @@ func (k *bumpUpdatedService) ServiceInfo() launchr.ServiceInfo {
 
 func (k *bumpUpdatedService) Bump() error {
 	fmt.Println("Bump updated versions...")
-	git := getRepo()
+	git, err := getRepo()
+	if err != nil {
+		return err
+	}
+
 	if git.IsOwnCommit() {
 		fmt.Println("Skipping bump, as the latest commit is already by the bumper tool.")
 		return nil
@@ -176,7 +179,13 @@ func (k *bumpUpdatedService) Bump() error {
 		return nil
 	}
 
-	_, err = k.updateResources(resources, git.GetLastCommitShortHash())
+	version, err := git.GetLastCommitShortHash()
+	if err != nil {
+		fmt.Println("Can't retrieve commit hash")
+		return err
+	}
+
+	_, err = k.updateResources(resources, version)
 	if err != nil {
 		fmt.Println("There is an error during resources update")
 		return err
