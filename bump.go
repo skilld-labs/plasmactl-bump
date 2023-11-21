@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	errEmptyPath = errors.New("empty resource path")
+	errEmptyPath  = errors.New("empty resource path")
+	errFailedMeta = errors.New("failed to open plasma.yaml")
 )
 
 var kinds = map[string]string{
@@ -56,6 +57,37 @@ func newResource(name string) *Resource {
 // GetName returns a resource name
 func (r *Resource) GetName() string {
 	return r.name
+}
+
+// GetVersion retrieves the version of the resource from the plasma.yaml
+func (r *Resource) GetVersion() (string, error) {
+	parts := strings.Split(r.GetName(), "__")
+	metaFile := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
+	if _, err := os.Stat(metaFile); err == nil {
+		data, err := os.ReadFile(filepath.Clean(metaFile))
+		if err != nil {
+			fmt.Printf("Failed to read meta file: %v\n", err)
+			return "", errFailedMeta
+		}
+
+		var meta map[string]interface{}
+		err = yaml.Unmarshal(data, &meta)
+		if err != nil {
+			fmt.Printf("Failed to unmarshal meta file: %v\n", err)
+			return "", errFailedMeta
+		}
+
+		if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
+			version := plasma["version"]
+			return version.(string), nil
+		}
+
+		fmt.Printf("Empty meta file, return empty string as version\n")
+		return "", nil
+	}
+
+	fmt.Printf("Meta file (%s) is missing\n", metaFile)
+	return "", errFailedMeta
 }
 
 // UpdateVersion updates the version of the resource in the plasma.yaml file
@@ -144,7 +176,12 @@ func (k *bumpUpdatedService) Bump() error {
 		return nil
 	}
 
-	k.updateResources(resources, git.GetLastCommitShortHash())
+	_, err = k.updateResources(resources, git.GetLastCommitShortHash())
+	if err != nil {
+		fmt.Println("There is an error during resources update")
+		return err
+	}
+
 	return git.Commit()
 }
 
@@ -175,14 +212,18 @@ func (k *bumpUpdatedService) collectResources(files []string) map[string]*Resour
 	return resources
 }
 
-func (k *bumpUpdatedService) updateResources(resources map[string]*Resource, version string) bool {
+func (k *bumpUpdatedService) updateResources(resources map[string]*Resource, version string) (bool, error) {
 	updated := false
 	for _, r := range resources {
-		fmt.Printf("Updating %s version\n", r.GetName())
+		currentVersion, err := r.GetVersion()
+		if err != nil {
+			return false, err
+		}
+		fmt.Printf("Updating %s version from %s to %s\n", r.GetName(), currentVersion, version)
 		updated = r.UpdateVersion(version) || updated
 	}
 
-	return updated
+	return updated, nil
 }
 
 func isUpdatableKind(kind string) bool {
