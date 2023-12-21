@@ -96,7 +96,7 @@ func (r *BumperRepo) getLatestModifiedFiles() ([]string, error) {
 
 // Commit stores the current changes to the Git repository with the default commit message and author.
 func (r *BumperRepo) Commit() error {
-	fmt.Println("Commits changes to updated resources")
+	fmt.Println("Commit changes to updated resources")
 	w, _ := r.git.Worktree()
 	status, _ := w.Status()
 
