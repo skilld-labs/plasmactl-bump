@@ -13,8 +13,10 @@ import (
 )
 
 var (
-	errEmptyPath  = errors.New("empty resource path")
-	errFailedMeta = errors.New("failed to open plasma.yaml")
+	errEmptyPath     = errors.New("empty resource path")
+	errNoUpdate      = errors.New("no resources to update")
+	errSkipBadCommit = errors.New("skipping bump, as the latest commit is already by the bumper tool")
+	errFailedMeta    = errors.New("failed to open plasma.yaml")
 )
 
 var kinds = map[string]string{
@@ -29,8 +31,9 @@ var kinds = map[string]string{
 	"entity":      "entities",
 }
 
-var unversionableFiles = map[string]bool{
-	"README.md": true,
+var unversionedFiles = map[string]struct{}{
+	"README.md":  {},
+	"README.svg": {},
 }
 
 // PromptError prints an error.
@@ -156,16 +159,25 @@ func (k *bumpUpdatedService) ServiceInfo() launchr.ServiceInfo {
 	return launchr.ServiceInfo{}
 }
 
+func printMemo() {
+	fmt.Println("List of unversioned files:")
+	for k := range unversionedFiles {
+		fmt.Println(k)
+	}
+	fmt.Print("\n")
+}
+
 func (k *bumpUpdatedService) Bump() error {
 	fmt.Println("Bump updated versions...")
+	printMemo()
+
 	git, err := getRepo()
 	if err != nil {
 		return err
 	}
 
 	if git.IsOwnCommit() {
-		fmt.Println("Skipping bump, as the latest commit is already by the bumper tool.")
-		return nil
+		return errSkipBadCommit
 	}
 
 	files, err := git.getLatestModifiedFiles()
@@ -175,8 +187,7 @@ func (k *bumpUpdatedService) Bump() error {
 
 	resources := k.collectResources(files)
 	if len(resources) == 0 {
-		fmt.Println("There are no resources to update.")
-		return nil
+		return errNoUpdate
 	}
 
 	version, err := git.GetLastCommitShortHash()
@@ -251,7 +262,7 @@ func isUpdatableKind(kind string) bool {
 
 func isVersionableFile(path string) bool {
 	name := filepath.Base(path)
-	_, ok := unversionableFiles[name]
+	_, ok := unversionedFiles[name]
 	return !ok
 }
 
