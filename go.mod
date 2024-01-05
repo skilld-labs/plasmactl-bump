@@ -1,4 +1,4 @@
-module github.com/skilld-labs/components-bump
+module github.com/davidferlay/components-bump
 
 go 1.21
 
