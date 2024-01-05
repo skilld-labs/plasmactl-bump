@@ -1,6 +1,6 @@
-# bump-updated
+# components-bump
 Update the version of resources that were updated in last commit
 
-### List of excluded files
+### Excluded files
 - README.md
 - README.svg
