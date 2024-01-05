@@ -34,7 +34,7 @@ func (p *Plugin) OnAppInit(app launchr.App) error {
 func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 	var bumpCmd = &cobra.Command{
 		Use:   "components-bump",
-		Short: "Bump versions of updated roles",
+		Short: "Bump versions of updated components",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Don't show usage help on a runtime error.
 			cmd.SilenceUsage = true
