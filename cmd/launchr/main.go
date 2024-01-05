@@ -6,7 +6,7 @@ import (
 
 	"github.com/launchrctl/launchr"
 
-	_ "github.com/launchrctl/bump-updated"
+	_ "github.com/skilld-labs/components-bump"
 )
 
 func main() {

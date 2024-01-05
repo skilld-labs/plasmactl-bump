@@ -1,4 +1,4 @@
-package bumpupdated
+package componentsbump
 
 import (
 	"bytes"
@@ -144,18 +144,18 @@ type BumpAction interface {
 	Bump() error
 }
 
-type bumpUpdatedService struct {
+type componentsBumpService struct {
 	cfg launchr.Config
 }
 
-func newBumpUpdatedService(cfg launchr.Config) BumpAction {
-	return &bumpUpdatedService{
+func newComponentsBumpService(cfg launchr.Config) BumpAction {
+	return &componentsBumpService{
 		cfg: cfg,
 	}
 }
 
 // ServiceInfo implements launchr.Service interface.
-func (k *bumpUpdatedService) ServiceInfo() launchr.ServiceInfo {
+func (k *componentsBumpService) ServiceInfo() launchr.ServiceInfo {
 	return launchr.ServiceInfo{}
 }
 
@@ -167,7 +167,7 @@ func printMemo() {
 	fmt.Print("\n")
 }
 
-func (k *bumpUpdatedService) Bump() error {
+func (k *componentsBumpService) Bump() error {
 	fmt.Println("Bump updated versions...")
 	printMemo()
 
@@ -205,7 +205,7 @@ func (k *bumpUpdatedService) Bump() error {
 	return git.Commit()
 }
 
-func (k *bumpUpdatedService) collectResources(files []string) map[string]*Resource {
+func (k *componentsBumpService) collectResources(files []string) map[string]*Resource {
 	resources := make(map[string]*Resource)
 	for _, path := range files {
 		if !isVersionableFile(path) {
@@ -232,7 +232,7 @@ func (k *bumpUpdatedService) collectResources(files []string) map[string]*Resour
 	return resources
 }
 
-func (k *bumpUpdatedService) updateResources(resources map[string]*Resource, version string) (bool, error) {
+func (k *componentsBumpService) updateResources(resources map[string]*Resource, version string) (bool, error) {
 	updated := false
 	for _, r := range resources {
 		currentVersion, err := r.GetVersion()

@@ -1,4 +1,4 @@
-module github.com/launchrctl/bump-updated
+module github.com/skilld-labs/components-bump
 
 go 1.21
 

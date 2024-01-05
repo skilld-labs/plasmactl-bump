@@ -1,4 +1,4 @@
-package bumpupdated
+package componentsbump
 
 import (
 	"fmt"
