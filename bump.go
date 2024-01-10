@@ -81,6 +81,9 @@ func (r *Resource) GetVersion() (string, error) {
 
 		if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
 			version := plasma["version"]
+			if version == nil {
+				version = ""
+			}
 			return version.(string), nil
 		}
 
@@ -223,8 +226,10 @@ func (k *componentsBumpService) collectResources(files []string) map[string]*Res
 
 		if isUpdatableKind(kind) {
 			resource := newResource(platform + "__" + kind + "__" + role)
-			fmt.Printf("Processing resource %s\n", resource.GetName())
-			resources[resource.GetName()] = resource
+			if _, ok := resources[resource.GetName()]; !ok {
+				fmt.Printf("Processing resource %s\n", resource.GetName())
+				resources[resource.GetName()] = resource
+			}
 		}
 
 	}

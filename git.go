@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/utils/merkletrie"
 )
 
 // BumperRepo encapsulates Git-related operations for bumping versions in a Git repository.
@@ -86,8 +87,17 @@ func (r *BumperRepo) getLatestModifiedFiles() ([]string, error) {
 
 	for _, ch := range diff {
 		action, _ := ch.Action()
-		if action.String() == "Modify" {
-			modifiedFiles = append(modifiedFiles, ch.From.Name)
+		var path string
+
+		switch action {
+		case merkletrie.Modify:
+			path = ch.From.Name
+		case merkletrie.Insert:
+			path = ch.To.Name
+		}
+
+		if path != "" {
+			modifiedFiles = append(modifiedFiles, path)
 		}
 	}
 
@@ -106,7 +116,7 @@ func (r *BumperRepo) Commit() error {
 	}
 
 	for path, s := range status {
-		if s.Worktree == 'M' {
+		if s.Worktree == git.Modified {
 			_, err := w.Add(path)
 			if err != nil {
 				fmt.Printf("Failed to add file to git: %v\n", err)
