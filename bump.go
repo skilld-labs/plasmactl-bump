@@ -61,10 +61,21 @@ func (r *Resource) GetName() string {
 	return r.name
 }
 
+func (r *Resource) isValidResource() bool {
+	metaPath := r.buildMetaPath()
+	_, err := os.Stat(metaPath)
+
+	return !os.IsNotExist(err)
+}
+
+func (r *Resource) buildMetaPath() string {
+	parts := strings.Split(r.GetName(), "__")
+	return fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
+}
+
 // GetVersion retrieves the version of the resource from the plasma.yaml
 func (r *Resource) GetVersion() (string, error) {
-	parts := strings.Split(r.GetName(), "__")
-	metaFile := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
+	metaFile := r.buildMetaPath()
 	if _, err := os.Stat(metaFile); err == nil {
 		data, err := os.ReadFile(filepath.Clean(metaFile))
 		if err != nil {
@@ -227,6 +238,11 @@ func (k *componentsBumpService) collectResources(files []string) map[string]*Res
 		if isUpdatableKind(kind) {
 			resource := newResource(platform + "__" + kind + "__" + role)
 			if _, ok := resources[resource.GetName()]; !ok {
+				// Check is meta/plasma.yaml exists for resource
+				if !resource.isValidResource() {
+					continue
+				}
+
 				fmt.Printf("Processing resource %s\n", resource.GetName())
 				resources[resource.GetName()] = resource
 			}
@@ -239,12 +255,18 @@ func (k *componentsBumpService) collectResources(files []string) map[string]*Res
 
 func (k *componentsBumpService) updateResources(resources map[string]*Resource, version string) (bool, error) {
 	updated := false
+
+	if len(resources) > 0 {
+		fmt.Println("Updating versions:")
+	}
+
 	for _, r := range resources {
 		currentVersion, err := r.GetVersion()
 		if err != nil {
 			return false, err
 		}
-		fmt.Printf("Updating %s version from %s to %s\n", r.GetName(), currentVersion, version)
+
+		fmt.Printf("- %s from %s to %s\n", r.GetName(), currentVersion, version)
 		updated = r.UpdateVersion(version) || updated
 	}
 
