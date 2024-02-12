@@ -1,4 +1,4 @@
-package componentsbump
+package plasmactlbump
 
 import (
 	"bytes"
@@ -158,18 +158,18 @@ type BumpAction interface {
 	Bump() error
 }
 
-type componentsBumpService struct {
+type bumpService struct {
 	cfg launchr.Config
 }
 
-func newComponentsBumpService(cfg launchr.Config) BumpAction {
-	return &componentsBumpService{
+func newBumpService(cfg launchr.Config) BumpAction {
+	return &bumpService{
 		cfg: cfg,
 	}
 }
 
 // ServiceInfo implements launchr.Service interface.
-func (k *componentsBumpService) ServiceInfo() launchr.ServiceInfo {
+func (k *bumpService) ServiceInfo() launchr.ServiceInfo {
 	return launchr.ServiceInfo{}
 }
 
@@ -181,7 +181,7 @@ func printMemo() {
 	fmt.Print("\n")
 }
 
-func (k *componentsBumpService) Bump() error {
+func (k *bumpService) Bump() error {
 	fmt.Println("Bump updated versions...")
 	printMemo()
 
@@ -219,7 +219,7 @@ func (k *componentsBumpService) Bump() error {
 	return git.Commit()
 }
 
-func (k *componentsBumpService) collectResources(files []string) map[string]*Resource {
+func (k *bumpService) collectResources(files []string) map[string]*Resource {
 	resources := make(map[string]*Resource)
 	for _, path := range files {
 		if !isVersionableFile(path) {
@@ -253,7 +253,7 @@ func (k *componentsBumpService) collectResources(files []string) map[string]*Res
 	return resources
 }
 
-func (k *componentsBumpService) updateResources(resources map[string]*Resource, version string) (bool, error) {
+func (k *bumpService) updateResources(resources map[string]*Resource, version string) (bool, error) {
 	updated := false
 
 	if len(resources) > 0 {

@@ -1,4 +1,4 @@
-package componentsbump
+package plasmactlbump
 
 import (
 	"fmt"

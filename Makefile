@@ -7,7 +7,7 @@ FIRST_GOPATH:=$(firstword $(subst :, ,$(GOPATH)))
 GIT_HASH:=$(shell git log --format="%h" -n 1 2> /dev/null)
 GIT_BRANCH:=$(shell git branch 2> /dev/null | grep '*' | cut -f2 -d' ')
 APP_VERSION:="$(GIT_BRANCH)-$(GIT_HASH)"
-GOPKG:=github.com/launchrctl/launchr
+GOPKG:=github.com/skilld-labs/plasmactl-bump
 
 DEBUG?=0
 ifeq ($(DEBUG), 1)
@@ -25,7 +25,7 @@ LOCAL_BIN:=$(CURDIR)/bin
 
 # Linter config.
 GOLANGCI_BIN:=$(LOCAL_BIN)/golangci-lint
-GOLANGCI_TAG:=1.53.3
+GOLANGCI_TAG:=1.55.2
 
 .PHONY: all
 all: deps test build

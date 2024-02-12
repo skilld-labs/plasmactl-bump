@@ -1,5 +1,5 @@
-// Package componentsbump implements a launchr plugin with bumper functionality
-package componentsbump
+// Package plasmactlbump implements a launchr plugin with bump functionality
+package plasmactlbump
 
 import (
 	"github.com/spf13/cobra"
@@ -25,7 +25,7 @@ func (p *Plugin) PluginInfo() launchr.PluginInfo {
 // OnAppInit implements launchr.Plugin interface.
 func (p *Plugin) OnAppInit(app launchr.App) error {
 	app.GetService(&p.cfg)
-	p.b = newComponentsBumpService(p.cfg)
+	p.b = newBumpService(p.cfg)
 	app.AddService(p.b)
 	return nil
 }
@@ -33,7 +33,7 @@ func (p *Plugin) OnAppInit(app launchr.App) error {
 // CobraAddCommands implements launchr.CobraPlugin interface to provide bump functionality.
 func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 	var bumpCmd = &cobra.Command{
-		Use:   "components-bump",
+		Use:   "bump",
 		Short: "Bump versions of updated components",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Don't show usage help on a runtime error.
