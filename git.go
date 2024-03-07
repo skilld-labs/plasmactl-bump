@@ -117,7 +117,10 @@ func (r *BumperRepo) Commit() error {
 
 	for path, s := range status {
 		if s.Worktree == git.Modified {
-			_, err := w.Add(path)
+			err := w.AddWithOptions(&git.AddOptions{
+				Path:       path,
+				SkipStatus: true,
+			})
 			if err != nil {
 				fmt.Printf("Failed to add file to git: %v\n", err)
 			}
