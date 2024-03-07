@@ -1,15 +1,12 @@
 package plasmactlbump
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/launchrctl/launchr"
-	"gopkg.in/yaml.v3"
+	"github.com/launchrctl/launchr/pkg/cli"
 )
 
 var (
@@ -18,18 +15,6 @@ var (
 	errSkipBadCommit = errors.New("skipping bump, as the latest commit is already by the bumper tool")
 	errFailedMeta    = errors.New("failed to open plasma.yaml")
 )
-
-var kinds = map[string]string{
-	"application": "applications",
-	"service":     "services",
-	"software":    "softwares",
-	"executor":    "executors",
-	"flow":        "flows",
-	"skill":       "skills",
-	"function":    "functions",
-	"library":     "libraries",
-	"entity":      "entities",
-}
 
 var unversionedFiles = map[string]struct{}{
 	"README.md":  {},
@@ -43,118 +28,6 @@ func PromptError(err error) {
 	}
 
 	fmt.Printf("\x1b[31;1m%s\x1b[0m\n", fmt.Sprintf("error: %s\n", err))
-}
-
-// Resource represents a ansible resource
-type Resource struct {
-	name string
-}
-
-func newResource(name string) *Resource {
-	return &Resource{
-		name: name,
-	}
-}
-
-// GetName returns a resource name
-func (r *Resource) GetName() string {
-	return r.name
-}
-
-func (r *Resource) isValidResource() bool {
-	metaPath := r.buildMetaPath()
-	_, err := os.Stat(metaPath)
-
-	return !os.IsNotExist(err)
-}
-
-func (r *Resource) buildMetaPath() string {
-	parts := strings.Split(r.GetName(), "__")
-	return fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
-}
-
-// GetVersion retrieves the version of the resource from the plasma.yaml
-func (r *Resource) GetVersion() (string, error) {
-	metaFile := r.buildMetaPath()
-	if _, err := os.Stat(metaFile); err == nil {
-		data, err := os.ReadFile(filepath.Clean(metaFile))
-		if err != nil {
-			fmt.Printf("Failed to read meta file: %v\n", err)
-			return "", errFailedMeta
-		}
-
-		var meta map[string]interface{}
-		err = yaml.Unmarshal(data, &meta)
-		if err != nil {
-			fmt.Printf("Failed to unmarshal meta file: %v\n", err)
-			return "", errFailedMeta
-		}
-
-		if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
-			version := plasma["version"]
-			if version == nil {
-				version = ""
-			}
-			val, okConversion := version.(string)
-			if okConversion {
-				return val, nil
-			}
-
-			return fmt.Sprint(version), nil
-		}
-
-		fmt.Printf("Empty meta file, return empty string as version\n")
-		return "", nil
-	}
-
-	fmt.Printf("Meta file (%s) is missing\n", metaFile)
-	return "", errFailedMeta
-}
-
-// UpdateVersion updates the version of the resource in the plasma.yaml file
-func (r *Resource) UpdateVersion(version string) bool {
-	parts := strings.Split(r.GetName(), "__")
-	metaFile := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
-	if _, err := os.Stat(metaFile); err == nil {
-		data, err := os.ReadFile(filepath.Clean(metaFile))
-		if err != nil {
-			fmt.Printf("Failed to read meta file: %v\n", err)
-			return false
-		}
-
-		var b bytes.Buffer
-		var meta map[string]interface{}
-		err = yaml.Unmarshal(data, &meta)
-		if err != nil {
-			fmt.Printf("Failed to unmarshal meta file: %v\n", err)
-			return false
-		}
-
-		if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
-			plasma["version"] = version
-		} else {
-			meta["plasma"] = map[string]interface{}{"version": version}
-		}
-
-		yamlEncoder := yaml.NewEncoder(&b)
-		yamlEncoder.SetIndent(2)
-		err = yamlEncoder.Encode(&meta)
-		if err != nil {
-			fmt.Printf("Failed to marshal meta file: %v\n", err)
-			return false
-		}
-
-		err = os.WriteFile(metaFile, b.Bytes(), 0600)
-		if err != nil {
-			fmt.Printf("Failed to write meta file: %v\n", err)
-			return false
-		}
-
-		return true
-	}
-
-	fmt.Printf("Meta file (%s) is missing\n", metaFile)
-	return false
 }
 
 // BumpAction is a launchr.Service providing bumper functionality.
@@ -215,7 +88,7 @@ func (k *bumpService) Bump() error {
 		return err
 	}
 
-	_, err = k.updateResources(resources, version)
+	err = k.updateResources(resources, version)
 	if err != nil {
 		fmt.Println("There is an error during resources update")
 		return err
@@ -225,6 +98,7 @@ func (k *bumpService) Bump() error {
 }
 
 func (k *bumpService) collectResources(files []string) map[string]*Resource {
+	// @TODO re-use inventory.GetChangedResources()
 	resources := make(map[string]*Resource)
 	for _, path := range files {
 		if !isVersionableFile(path) {
@@ -241,7 +115,7 @@ func (k *bumpService) collectResources(files []string) map[string]*Resource {
 		}
 
 		if isUpdatableKind(kind) {
-			resource := newResource(platform + "__" + kind + "__" + role)
+			resource := newResource(prepareResourceName(platform, kind, role), "")
 			if _, ok := resources[resource.GetName()]; !ok {
 				// Check is meta/plasma.yaml exists for resource
 				if !resource.isValidResource() {
@@ -258,51 +132,30 @@ func (k *bumpService) collectResources(files []string) map[string]*Resource {
 	return resources
 }
 
-func (k *bumpService) updateResources(resources map[string]*Resource, version string) (bool, error) {
-	updated := false
-
-	if len(resources) > 0 {
-		fmt.Println("Updating versions:")
+func (k *bumpService) updateResources(resources map[string]*Resource, version string) error {
+	if len(resources) == 0 {
+		return nil
 	}
 
+	cli.Println("Updating versions:")
 	for _, r := range resources {
 		currentVersion, err := r.GetVersion()
 		if err != nil {
-			return false, err
+			return err
 		}
 
 		fmt.Printf("- %s from %s to %s\n", r.GetName(), currentVersion, version)
-		updated = r.UpdateVersion(version) || updated
-	}
-
-	return updated, nil
-}
-
-func isUpdatableKind(kind string) bool {
-	if _, ok := kinds[kind]; ok {
-		return true
-	}
-
-	for _, value := range kinds {
-		if value == kind {
-			return true
+		err = r.UpdateVersion(version)
+		if err != nil {
+			return err
 		}
 	}
 
-	return false
+	return nil
 }
 
 func isVersionableFile(path string) bool {
 	name := filepath.Base(path)
 	_, ok := unversionedFiles[name]
 	return !ok
-}
-
-func processResourcePath(path string) (string, string, string, error) {
-	parts := strings.Split(path, "/")
-	if len(parts) > 3 {
-		return parts[0], parts[1], parts[3], nil
-	}
-
-	return "", "", "", errEmptyPath
 }

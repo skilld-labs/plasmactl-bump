@@ -5,9 +5,13 @@ go 1.21
 toolchain go1.21.4
 
 require (
+	github.com/cespare/xxhash/v2 v2.2.0
 	github.com/go-git/go-git/v5 v5.11.1-0.20240306183133-efdd3995a973
 	github.com/launchrctl/launchr v0.6.0
+	github.com/sosedoff/ansible-vault-go v0.2.0
 	github.com/spf13/cobra v1.8.0
+	github.com/stevenle/topsort v0.2.0
+	golang.org/x/term v0.18.0
 )
 
 require (
