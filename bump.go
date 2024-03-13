@@ -194,7 +194,7 @@ func (k *bumpService) Bump() error {
 		return errSkipBadCommit
 	}
 
-	files, err := git.getLatestModifiedFiles()
+	files, err := git.getModifiedFiles()
 	if err != nil {
 		return err
 	}

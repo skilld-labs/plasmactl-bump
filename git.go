@@ -104,6 +104,70 @@ func (r *BumperRepo) getLatestModifiedFiles() ([]string, error) {
 	return modifiedFiles, nil
 }
 
+// getModifiedFiles gets a list of files modified in the Git repository commits after last Bump.
+func (r *BumperRepo) getModifiedFiles() ([]string, error) {
+	var modifiedFiles []string
+
+	headRef, err := r.git.Head()
+	if err != nil {
+		return nil, err
+	}
+
+	headCommit, err := r.git.CommitObject(headRef.Hash())
+	if err != nil {
+		return nil, err
+	}
+
+	parentCommit, err := headCommit.Parent(0)
+	if err != nil {
+		return nil, err
+	}
+
+	commitsNum := 0
+	for {
+		if commitsNum > 0 {
+			headCommit = parentCommit
+		}
+
+		headTree, _ := headCommit.Tree()
+
+		parentCommit, err = headCommit.Parent(0)
+		if err != nil {
+			return nil, err
+		}
+
+		parentTree, _ := parentCommit.Tree()
+
+		diff, err := parentTree.Diff(headTree)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, ch := range diff {
+			action, _ := ch.Action()
+			var path string
+
+			switch action {
+			case merkletrie.Modify:
+				path = ch.From.Name
+			case merkletrie.Insert:
+				path = ch.To.Name
+			}
+
+			if path != "" {
+				modifiedFiles = append(modifiedFiles, path)
+			}
+		}
+
+		commitsNum++
+		if parentCommit.Message == r.commitMessage {
+			break
+		}
+	}
+
+	return modifiedFiles, nil
+}
+
 // Commit stores the current changes to the Git repository with the default commit message and author.
 func (r *BumperRepo) Commit() error {
 	fmt.Println("Commit changes to updated resources")
