@@ -1,5 +1,7 @@
 dario.cat/mergo v1.0.0 h1:AGCNq9Evsj31mOgNPcLyXc+4PNABt905YmuqPYYpBWk=
 dario.cat/mergo v1.0.0/go.mod h1:uNxQE+84aUszobStD9th8a29P2fMDhsBdgRYvZOxGmk=
+filippo.io/age v1.1.1 h1:pIpO7l151hCnQ4BdyBujnGP2YlUo0uj6sAVNHGBvXHg=
+filippo.io/age v1.1.1/go.mod h1:l03SrzDUrBkdBx8+IILdnn2KZysqQdbEBUQ4p3sqEQE=
 github.com/AdaLogics/go-fuzz-headers v0.0.0-20230811130428-ced1acdcaa24 h1:bvDV9vkmnHYOMsOr4WLk+Vo07yKIzd94sVoIqshQ4bU=
 github.com/AdaLogics/go-fuzz-headers v0.0.0-20230811130428-ced1acdcaa24/go.mod h1:8o94RPi1/7XTJvwPpRSzSUedZrtlirdB3r9Z20bi2f8=
 github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 h1:L/gRVlceqvL25UVaW/CKtUDjefjrs0SPonmDGUVOYP0=
@@ -93,6 +95,8 @@ github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
 github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
+github.com/launchrctl/keyring v0.1.2-0.20240326124550-4dd5dc3fa82f h1:nWLdwmzAhUmJuDFKp8ct21++Z7Y1BHI8uehcT3QdeeE=
+github.com/launchrctl/keyring v0.1.2-0.20240326124550-4dd5dc3fa82f/go.mod h1:ECTYIH2h8CX+9pC93oVtmTMsqgeWd+MOruq+Kk7Y0io=
 github.com/launchrctl/launchr v0.6.0 h1:hOyftbkd/Sv7Q+O902WXaCprNx8pMAyZ1juw8r+s94c=
 github.com/launchrctl/launchr v0.6.0/go.mod h1:mz7JSPdg/PqRX3iUZdln8n0kmq/B7vhC8sPeT9z5LHs=
 github.com/moby/moby v25.0.1+incompatible h1:D5dq6pwxT7Z9KiwPlH6QB6pyR6JTfJCVlgjEmyLE5uI=

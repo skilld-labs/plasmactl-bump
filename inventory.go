@@ -7,13 +7,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 
-	"github.com/launchrctl/launchr/pkg/cli"
 	"github.com/launchrctl/launchr/pkg/log"
 	vault "github.com/sosedoff/ansible-vault-go"
 	"github.com/stevenle/topsort"
-	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
@@ -70,19 +67,8 @@ type Inventory struct {
 // It then calls the Init method of the Inventory to build the resources graph and returns
 // the initialized Inventory and any error that occurred during initialization.
 func NewInventory(vaultpass, sourceDir, comparisonDir string) (*Inventory, error) {
-	password := vaultpass
-	if password == "" {
-		cli.Println("- Ansible vault password:")
-		passwordBytes, err := term.ReadPassword(syscall.Stdin)
-		if err != nil {
-			panic(err)
-		}
-		password = string(passwordBytes)
-		cli.Println("")
-	}
-
 	inv := &Inventory{
-		vaultPassword:    password,
+		vaultPassword:    vaultpass,
 		ResourcesCrawler: NewResourcesCrawler(sourceDir),
 		requiredMap:      make(map[string]map[string]bool),
 		dependencyMap:    make(map[string]map[string]bool),

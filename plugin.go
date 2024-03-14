@@ -4,6 +4,7 @@ package plasmactlbump
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr"
 )
 
@@ -14,6 +15,7 @@ func init() {
 // Plugin is launchr plugin providing bump action.
 type Plugin struct {
 	b   BumpAction
+	k   keyring.Keyring
 	cfg launchr.Config
 }
 
@@ -27,6 +29,7 @@ func (p *Plugin) PluginInfo() launchr.PluginInfo {
 // OnAppInit implements launchr.Plugin interface.
 func (p *Plugin) OnAppInit(app launchr.App) error {
 	app.GetService(&p.cfg)
+	app.GetService(&p.k)
 	p.b = newBumpService(p.cfg)
 	app.AddService(p.b)
 	return nil
@@ -37,9 +40,6 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 	var sync bool
 	var dryRun bool
 	var override string
-	var username string
-	var password string
-	var vaultpass string
 
 	var bumpCmd = &cobra.Command{
 		Use:   "bump",
@@ -53,9 +53,10 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 					sourceDir:     ".compose/build",
 					comparisonDir: ".compose/comparison-artifact",
 					dryRun:        dryRun,
+					keyring:       p.k,
 				}
 
-				return syncAction.Execute(username, password, override, vaultpass)
+				return syncAction.Execute(override)
 			}
 
 			return p.b.Bump()
@@ -65,9 +66,6 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 	bumpCmd.Flags().BoolVarP(&sync, "sync", "s", false, "Propagate versions of updated components to their dependencies")
 	bumpCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate propagate without doing anything")
 	bumpCmd.Flags().StringVar(&override, "override", "", "Override comparison artifact name (commit)")
-	bumpCmd.Flags().StringVar(&username, "username", "", "Username for artifact repository")
-	bumpCmd.Flags().StringVar(&password, "password", "", "Password for artifact repository")
-	bumpCmd.Flags().StringVar(&vaultpass, "vault-pass", "", "Password for Ansible Vault")
 
 	rootCmd.AddCommand(bumpCmd)
 	return nil
