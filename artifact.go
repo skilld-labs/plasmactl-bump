@@ -11,11 +11,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 
 	"github.com/launchrctl/launchr/pkg/cli"
 	"github.com/launchrctl/launchr/pkg/log"
-	"golang.org/x/term"
 )
 
 const (
@@ -97,24 +95,6 @@ func (s *ArtifactStorage) downloadArtifact(username, password, artifactFile, art
 	cli.Println("Local artifact not found")
 	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", artifactsRepositoryDomain, repo, artifactFile)
 	cli.Println("Attempting to download artifact: %s", url)
-
-	if username == "" {
-		cli.Print("Artifacts repository username: ")
-		_, err := fmt.Scanln(&username)
-		if err != nil {
-			return err
-		}
-	}
-
-	if password == "" {
-		cli.Print("Artifacts repository password: ")
-		passwordBytes, err := term.ReadPassword(syscall.Stdin)
-		if err != nil {
-			return err
-		}
-		password = string(passwordBytes)
-		cli.Println("")
-	}
 
 	err := os.MkdirAll(artifactsPath, dirPermissions)
 	if err != nil {
