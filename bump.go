@@ -95,7 +95,12 @@ func (r *Resource) GetVersion() (string, error) {
 			if version == nil {
 				version = ""
 			}
-			return version.(string), nil
+			val, okConversion := version.(string)
+			if okConversion {
+				return val, nil
+			}
+
+			return fmt.Sprint(version), nil
 		}
 
 		fmt.Printf("Empty meta file, return empty string as version\n")
