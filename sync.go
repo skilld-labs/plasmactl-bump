@@ -143,6 +143,7 @@ func (s *SyncAction) propagate(vaultpass string, modifiedFiles []string) error {
 }
 
 func (s *SyncAction) updateResources(toPropagate *OrderedResourceMap, resourceVersionMap map[string]string) error {
+	var sortList []string
 	updateMap := make(map[string]map[string]string)
 	stopPropagation := false
 
@@ -170,6 +171,7 @@ func (s *SyncAction) updateResources(toPropagate *OrderedResourceMap, resourceVe
 
 		updateMap[r.GetName()]["new"] = newVersion
 		updateMap[r.GetName()]["current"] = currentVersion
+		sortList = append(sortList, r.GetName())
 	}
 
 	if stopPropagation {
@@ -181,8 +183,11 @@ func (s *SyncAction) updateResources(toPropagate *OrderedResourceMap, resourceVe
 		return nil
 	}
 
+	sort.Strings(sortList)
 	cli.Println("Propagating versions:")
-	for key, val := range updateMap {
+	for _, key := range sortList {
+		val := updateMap[key]
+
 		r, _ := toPropagate.Get(key)
 		currentVersion := val["current"]
 		newVersion := val["new"]
