@@ -127,12 +127,7 @@ func (s *SyncAction) propagate(vaultpass string, modifiedFiles []string) error {
 		//    changed var 2 / -> dev. var -> go to 2
 		// 4  changer var 1 -> changed dep.var -> resources [ ... ], set changed var1 hash to all resources
 		vars := resourceVarsMap[r.GetName()]
-		hash := s.generateVariablesHash(vars)
-		resourceVersion, errVersion := r.GetVersion()
-		if errVersion != nil {
-			return errVersion
-		}
-		version := s.composeVersion(resourceVersion, hash)
+		version := s.generateVariablesHash(vars)
 		s.collectDependenciesRecursively(r, version, toPropagate, inv.GetRequiredMap(), resourceVersionMap)
 	}
 
@@ -143,6 +138,7 @@ func (s *SyncAction) propagate(vaultpass string, modifiedFiles []string) error {
 }
 
 func (s *SyncAction) updateResources(toPropagate *OrderedResourceMap, resourceVersionMap map[string]string) error {
+	var sortList []string
 	updateMap := make(map[string]map[string]string)
 	stopPropagation := false
 
@@ -170,6 +166,7 @@ func (s *SyncAction) updateResources(toPropagate *OrderedResourceMap, resourceVe
 
 		updateMap[r.GetName()]["new"] = newVersion
 		updateMap[r.GetName()]["current"] = currentVersion
+		sortList = append(sortList, r.GetName())
 	}
 
 	if stopPropagation {
@@ -181,8 +178,11 @@ func (s *SyncAction) updateResources(toPropagate *OrderedResourceMap, resourceVe
 		return nil
 	}
 
+	sort.Strings(sortList)
 	cli.Println("Propagating versions:")
-	for key, val := range updateMap {
+	for _, key := range sortList {
+		val := updateMap[key]
+
 		r, _ := toPropagate.Get(key)
 		currentVersion := val["current"]
 		newVersion := val["new"]

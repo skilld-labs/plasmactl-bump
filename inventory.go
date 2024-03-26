@@ -211,6 +211,11 @@ func (i *Inventory) buildResourcesGraph() error {
 		return err
 	}
 
+	// reverse order to have platform at top
+	for y, j := 0, len(order)-1; y < j; y, j = y+1, j-1 {
+		order[y], order[j] = order[j], order[y]
+	}
+
 	i.resourcesOrder = order
 
 	return nil
