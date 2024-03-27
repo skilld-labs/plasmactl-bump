@@ -7,15 +7,16 @@ toolchain go1.21.4
 require (
 	github.com/cespare/xxhash/v2 v2.2.0
 	github.com/go-git/go-git/v5 v5.11.1-0.20240306183133-efdd3995a973
+	github.com/launchrctl/keyring v0.1.2-0.20240326124550-4dd5dc3fa82f
 	github.com/launchrctl/launchr v0.6.0
 	github.com/sosedoff/ansible-vault-go v0.2.0
 	github.com/spf13/cobra v1.8.0
 	github.com/stevenle/topsort v0.2.0
-	golang.org/x/term v0.18.0
 )
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
+	filippo.io/age v1.1.1 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/ProtonMail/go-crypto v1.0.0 // indirect
@@ -66,6 +67,7 @@ require (
 	golang.org/x/mod v0.14.0 // indirect
 	golang.org/x/net v0.22.0 // indirect
 	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/term v0.18.0 // indirect
 	golang.org/x/tools v0.17.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1
