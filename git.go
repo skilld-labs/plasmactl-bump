@@ -32,7 +32,7 @@ func getRepo() (*BumperRepo, error) {
 		git:           r,
 		name:          "Bumper",
 		mail:          "no-reply@skilld.cloud",
-		commitMessage: "versions bump",
+		commitMessage: bumpSearchText,
 	}, nil
 }
 
@@ -119,7 +119,7 @@ func (r *BumperRepo) getModifiedFiles() ([]string, error) {
 		}
 
 		commitsNum++
-		if parentCommit.Message == r.commitMessage {
+		if strings.TrimSpace(parentCommit.Author.Name) == r.name {
 			break
 		}
 	}
