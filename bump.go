@@ -33,7 +33,7 @@ func PromptError(err error) {
 // BumpAction is a launchr.Service providing bumper functionality.
 type BumpAction interface {
 	launchr.Service
-	Bump() error
+	Bump(last bool) error
 }
 
 type bumpService struct {
@@ -59,7 +59,7 @@ func printMemo() {
 	fmt.Print("\n")
 }
 
-func (k *bumpService) Bump() error {
+func (k *bumpService) Bump(last bool) error {
 	fmt.Println("Bump updated versions...")
 	printMemo()
 
@@ -72,7 +72,7 @@ func (k *bumpService) Bump() error {
 		return errSkipBadCommit
 	}
 
-	files, err := git.getModifiedFiles()
+	files, err := git.getModifiedFiles(last)
 	if err != nil {
 		return err
 	}
