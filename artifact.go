@@ -61,6 +61,7 @@ func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) error 
 		return err
 	}
 
+	cli.Println("Processing...")
 	err = s.prepareComparisonDir(comparisonDir)
 	if err != nil {
 		return err
