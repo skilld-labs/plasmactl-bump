@@ -64,7 +64,7 @@ func (r *BumperRepo) GetLastCommitShortHash() (string, error) {
 }
 
 // getModifiedFiles gets a list of files modified in the Git repository commits after last Bump.
-func (r *BumperRepo) getModifiedFiles() ([]string, error) {
+func (r *BumperRepo) getModifiedFiles(last bool) ([]string, error) {
 	var modifiedFiles []string
 
 	headRef, err := r.git.Head()
@@ -116,6 +116,10 @@ func (r *BumperRepo) getModifiedFiles() ([]string, error) {
 			if path != "" {
 				modifiedFiles = append(modifiedFiles, path)
 			}
+		}
+
+		if last {
+			break
 		}
 
 		commitsNum++

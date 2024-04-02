@@ -40,6 +40,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 	var username string
 	var password string
 	var vaultpass string
+	var last bool
 
 	var bumpCmd = &cobra.Command{
 		Use:   "bump",
@@ -58,7 +59,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 				return syncAction.Execute(username, password, override, vaultpass)
 			}
 
-			return p.b.Bump()
+			return p.b.Bump(last)
 		},
 	}
 
@@ -68,6 +69,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 	bumpCmd.Flags().StringVar(&username, "username", "", "Username for artifact repository")
 	bumpCmd.Flags().StringVar(&password, "password", "", "Password for artifact repository")
 	bumpCmd.Flags().StringVar(&vaultpass, "vault-pass", "", "Password for Ansible Vault")
+	bumpCmd.Flags().BoolVarP(&last, "last", "l", false, "Bump resources modified in last commit only")
 
 	rootCmd.AddCommand(bumpCmd)
 	return nil
