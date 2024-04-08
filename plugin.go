@@ -4,6 +4,7 @@ package plasmactlbump
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr"
 )
 
@@ -14,6 +15,7 @@ func init() {
 // Plugin is launchr plugin providing bump action.
 type Plugin struct {
 	b   BumpAction
+	k   keyring.Keyring
 	cfg launchr.Config
 }
 
@@ -27,6 +29,7 @@ func (p *Plugin) PluginInfo() launchr.PluginInfo {
 // OnAppInit implements launchr.Plugin interface.
 func (p *Plugin) OnAppInit(app launchr.App) error {
 	app.GetService(&p.cfg)
+	app.GetService(&p.k)
 	p.b = newBumpService(p.cfg)
 	app.AddService(p.b)
 	return nil
@@ -54,6 +57,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 					sourceDir:     ".compose/build",
 					comparisonDir: ".compose/comparison-artifact",
 					dryRun:        dryRun,
+					keyring:       p.k,
 				}
 
 				return syncAction.Execute(username, password, override, vaultpass)

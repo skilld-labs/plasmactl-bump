@@ -7,12 +7,18 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr/pkg/cli"
 	"github.com/launchrctl/launchr/pkg/log"
 )
 
 var (
-	errEmptyVersions = errors.New("empty version has been detected, please check log")
+	errEmptyVersions    = errors.New("empty version has been detected, please check log")
+	errMalformedKeyring = errors.New("the keyring is malformed or wrong passphrase provided")
+)
+
+const (
+	vaultpassKey = "vaultpass"
 )
 
 // SyncAction is a type representing a resources version synchronization action.
@@ -20,6 +26,8 @@ type SyncAction struct {
 	sourceDir     string
 	comparisonDir string
 	dryRun        bool
+	keyring       keyring.Keyring
+	saveKeyring   bool
 }
 
 // Execute executes the sync action by following these steps:
@@ -45,8 +53,19 @@ func (s *SyncAction) Execute(username, password, override, vaultpass string) err
 		log.Info("- %s", file)
 	}
 
-	err = s.propagate(vaultpass, modifiedFiles)
-	return err
+	err = s.propagate(modifiedFiles, vaultpass)
+	if err != nil {
+		return err
+	}
+
+	if s.saveKeyring {
+		err = s.keyring.Save()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *SyncAction) prepareArtifact(username, password, override string) error {
@@ -55,10 +74,38 @@ func (s *SyncAction) prepareArtifact(username, password, override string) error 
 		return err
 	}
 
+	ci, errGet := s.keyring.GetForURL(artifactsRepositoryDomain)
+	if errGet != nil {
+		if errors.Is(errGet, keyring.ErrEmptyPass) {
+			return errGet
+		} else if !errors.Is(errGet, keyring.ErrNotFound) {
+			log.Debug("%s", errGet)
+			return errMalformedKeyring
+		}
+
+		ci.URL = artifactsRepositoryDomain
+		ci.Username = username
+		ci.Password = password
+
+		if ci.URL != "" && (ci.Username == "" || ci.Password == "") {
+			fmt.Printf("Please add login and password for URL - %s\n", ci.URL)
+		}
+		err = keyring.RequestCredentialsFromTty(&ci)
+		if err != nil {
+			return err
+		}
+
+		err = s.keyring.AddItem(ci)
+		if err != nil {
+			return err
+		}
+		s.saveKeyring = true
+	}
+
 	storage := ArtifactStorage{
 		repo:     repo,
-		username: username,
-		password: password,
+		username: ci.Username,
+		password: ci.Password,
 		override: override,
 	}
 
@@ -70,8 +117,35 @@ func (s *SyncAction) prepareArtifact(username, password, override string) error 
 	return nil
 }
 
-func (s *SyncAction) propagate(vaultpass string, modifiedFiles []string) error {
-	inv, err := NewInventory(vaultpass, s.sourceDir, s.comparisonDir)
+func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string) error {
+	keyValueItem, errGet := s.keyring.GetForKey(vaultpassKey)
+	if errGet != nil {
+		if errors.Is(errGet, keyring.ErrEmptyPass) {
+			return errGet
+		} else if !errors.Is(errGet, keyring.ErrNotFound) {
+			log.Debug("%s", errGet)
+			return errMalformedKeyring
+		}
+
+		keyValueItem.Key = vaultpassKey
+		keyValueItem.Value = vaultpass
+		if keyValueItem.Value == "" {
+			cli.Println("- Ansible vault password")
+		}
+
+		err := keyring.RequestKeyValueFromTty(&keyValueItem)
+		if err != nil {
+			return err
+		}
+
+		err = s.keyring.AddItem(keyValueItem)
+		if err != nil {
+			return err
+		}
+		s.saveKeyring = true
+	}
+
+	inv, err := NewInventory(keyValueItem.Value, s.sourceDir, s.comparisonDir)
 	if err != nil {
 		return err
 	}
