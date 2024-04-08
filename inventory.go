@@ -114,6 +114,12 @@ func (i *Inventory) GetRequiredMap() map[string]map[string]bool {
 	return i.requiredMap
 }
 
+// GetDependenciesMap returns the map, which represents the dependencies between resources in the Inventory.
+// The map is of type `map[string]map[string]bool`, where the keys are the resource names and the values are maps of dependent resource names.
+func (i *Inventory) GetDependenciesMap() map[string]map[string]bool {
+	return i.dependencyMap
+}
+
 func (i *Inventory) buildResourcesGraph() error {
 	err := filepath.Walk(i.sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -226,7 +232,7 @@ func (i *Inventory) buildResourcesGraph() error {
 func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedResourceMap {
 	resources := NewOrderedResourceMap()
 	for _, path := range modifiedFiles {
-		resource := buildResourceFromPath(path, i.sourceDir)
+		resource := BuildResourceFromPath(path, i.sourceDir)
 		if resource == nil {
 			continue
 		}
@@ -378,7 +384,7 @@ func (i *Inventory) searchVariablesResources(variables map[string]*Variable) (*O
 	}
 
 	for path, vars := range assetsMap {
-		resource := buildResourceFromPath(path, i.sourceDir)
+		resource := BuildResourceFromPath(path, i.sourceDir)
 		if resource == nil {
 			continue
 		}

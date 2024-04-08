@@ -135,7 +135,7 @@ func (r *Resource) UpdateVersion(version string) error {
 	return errFailedMeta
 }
 
-func buildResourceFromPath(path, pathPrefix string) *Resource {
+func BuildResourceFromPath(path, pathPrefix string) *Resource {
 	if !isVersionableFile(path) {
 		return nil
 	}
