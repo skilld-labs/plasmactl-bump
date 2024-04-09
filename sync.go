@@ -87,12 +87,12 @@ func (s *SyncAction) prepareArtifact(username, password, override string) error 
 		ci.Username = username
 		ci.Password = password
 
-		if ci.URL != "" && (ci.Username == "" || ci.Password == "") {
+		if ci.Username == "" || ci.Password == "" {
 			fmt.Printf("Please add login and password for URL - %s\n", ci.URL)
-		}
-		err = keyring.RequestCredentialsFromTty(&ci)
-		if err != nil {
-			return err
+			err = keyring.RequestCredentialsFromTty(&ci)
+			if err != nil {
+				return err
+			}
 		}
 
 		err = s.keyring.AddItem(ci)
@@ -129,16 +129,16 @@ func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string) error {
 
 		keyValueItem.Key = vaultpassKey
 		keyValueItem.Value = vaultpass
+
 		if keyValueItem.Value == "" {
 			cli.Println("- Ansible vault password")
+			err := keyring.RequestKeyValueFromTty(&keyValueItem)
+			if err != nil {
+				return err
+			}
 		}
 
-		err := keyring.RequestKeyValueFromTty(&keyValueItem)
-		if err != nil {
-			return err
-		}
-
-		err = s.keyring.AddItem(keyValueItem)
+		err := s.keyring.AddItem(keyValueItem)
 		if err != nil {
 			return err
 		}
