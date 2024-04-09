@@ -453,6 +453,7 @@ func (i *Inventory) crawlVariableUsage(variable *Variable, dependents map[string
 type ResourcesCrawler struct {
 	taskSources     map[string][]string
 	templateSources map[string][]string
+	defaultsSources map[string][]string
 	rootDir         string
 }
 
@@ -461,6 +462,7 @@ func NewResourcesCrawler(directory string) *ResourcesCrawler {
 	return &ResourcesCrawler{
 		taskSources:     make(map[string][]string),
 		templateSources: make(map[string][]string),
+		defaultsSources: make(map[string][]string),
 		rootDir:         directory,
 	}
 }
@@ -511,6 +513,19 @@ func (cr *ResourcesCrawler) FindTaskFiles(platform string) []string {
 	return cr.findFilesByPattern(
 		"*.yaml",
 		"tasks",
+		platform,
+		4,
+		0,
+		2,
+		4,
+	)
+}
+
+// FindDefaultFiles returns a slice of file paths that match certain criteria for defaults on a specific platform.
+func (cr *ResourcesCrawler) FindDefaultFiles(platform string) []string {
+	return cr.findFilesByPattern(
+		"*.yaml",
+		"defaults",
 		platform,
 		4,
 		0,
@@ -625,7 +640,12 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 		cr.templateSources[platform] = cr.FindTemplateFiles(searchPlatform)
 	}
 
+	if _, ok := cr.defaultsSources[platform]; !ok {
+		cr.defaultsSources[platform] = cr.FindDefaultFiles(searchPlatform)
+	}
+
 	files := append(cr.taskSources[platform], cr.templateSources[platform]...)
+	files = append(files, cr.defaultsSources[platform]...)
 
 	regExpressions := make(map[string]*regexp.Regexp)
 
