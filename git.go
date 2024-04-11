@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
+
 	"github.com/go-git/go-git/v5/plumbing/storer"
 
 	"github.com/go-git/go-git/v5"
@@ -186,24 +188,21 @@ func (r *BumperRepo) GetRepoName() (string, error) {
 	return "", errors.New("no remote was found")
 }
 
-// GetComparisonRef returns the short hash of the commit that contains the specified search message.
-// If the commit is found, the function will return the short hash. Otherwise, if the commit is not found in the search,
-// or if there is an error resolving the revision or fetching the commit log, an error will be returned.
-func (r *BumperRepo) GetComparisonRef(searchMessage string) (string, error) {
-	hash, err := r.git.ResolveRevision("HEAD~1")
+// GetComparisonCommit returns the commit that contains the specified search message.
+func (r *BumperRepo) GetComparisonCommit(from plumbing.Hash, searchMessage string) (*plumbing.Hash, error) {
+	cIter, err := r.git.Log(&git.LogOptions{From: from})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	cIter, err := r.git.Log(&git.LogOptions{From: *hash})
-	if err != nil {
-		return "", err
-	}
-
-	var commit []rune
+	var commit *plumbing.Hash
 	err = cIter.ForEach(func(c *object.Commit) error {
-		if strings.Contains(c.Message, searchMessage) {
-			commit = []rune(c.Hash.String())
+		if c.Hash == from {
+			return nil
+		}
+
+		if strings.TrimSpace(c.Message) == searchMessage {
+			commit = &c.Hash
 			return storer.ErrStop
 		}
 
@@ -211,13 +210,12 @@ func (r *BumperRepo) GetComparisonRef(searchMessage string) (string, error) {
 	})
 
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	if len(commit) == 0 {
-		return "", errors.New("unable to determine comparison ref (couldn't compute it)")
+	if commit == nil {
+		return nil, errors.New("unable to determine comparison commit (couldn't compute it)")
 	}
 
-	shortCommit := string(commit[:7])
-	return shortCommit, nil
+	return commit, nil
 }
