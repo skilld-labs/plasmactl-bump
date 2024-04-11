@@ -21,6 +21,11 @@ const (
 	artifactsPath             = ".compose/artifacts"
 	bumpSearchText            = "versions bump"
 	dirPermissions            = 0755
+	retryLimit                = 50
+)
+
+var (
+	errArtifactNotFound = errors.New("artifact was not found")
 )
 
 // ArtifactStorage represents a storage for artifacts.
@@ -39,24 +44,54 @@ func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) error 
 	}
 
 	log.Info("Repository name: %s", repoName)
-	var comparisonRef string
+	var archivePath string
 	if s.override != "" {
-		comparisonRef = s.override
+		comparisonRef := s.override
 		log.Info("OVERRIDDEN_COMPARISON_REF has been set: %s", s.override)
-	} else {
-		comparisonRef, err = s.repo.GetComparisonRef(bumpSearchText)
+		artifactFile, artifactPath := s.buildArtifactPaths(repoName, comparisonRef)
+		err = s.downloadArtifact(s.username, s.password, artifactFile, artifactPath, repoName)
 		if err != nil {
 			return err
 		}
-		log.Info("Last bump commit identified: %s", comparisonRef)
-	}
 
-	artifactFile := fmt.Sprintf("%s-%s-plasma-src.tar.gz", repoName, comparisonRef)
-	artifactPath := filepath.Join(artifactsPath, artifactFile)
+		archivePath = artifactPath
+	} else {
+		hash, errHash := s.repo.git.ResolveRevision("HEAD~1")
+		if errHash != nil {
+			return errHash
+		}
 
-	err = s.downloadArtifact(s.username, s.password, artifactFile, artifactPath, repoName)
-	if err != nil {
-		return err
+		from := hash
+		retryCount := 0
+		for retryCount < retryLimit {
+			comparisonHash, errHash := s.repo.GetComparisonCommit(*from, bumpSearchText)
+			if errHash != nil {
+				return errHash
+			}
+
+			commit := []rune(comparisonHash.String())
+			comparisonRef := string(commit[:7])
+
+			log.Info("Bump commit identified: %s", comparisonRef)
+			artifactFile, artifactPath := s.buildArtifactPaths(repoName, comparisonRef)
+			errDownload := s.downloadArtifact(s.username, s.password, artifactFile, artifactPath, repoName)
+			if errDownload != nil {
+				if errors.Is(errDownload, errArtifactNotFound) {
+					retryCount++
+					from = comparisonHash
+					continue
+				}
+
+				return errDownload
+			}
+
+			archivePath = artifactPath
+			break
+		}
+
+		if archivePath == "" {
+			return errArtifactNotFound
+		}
 	}
 
 	cli.Println("Processing...")
@@ -64,12 +99,19 @@ func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) error 
 	if err != nil {
 		return err
 	}
-	_, err = s.unarchiveTar(artifactPath, comparisonDir)
+	_, err = s.unarchiveTar(archivePath, comparisonDir)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (s *ArtifactStorage) buildArtifactPaths(repoName, comparisonRef string) (string, string) {
+	artifactFile := fmt.Sprintf("%s-%s-plasma-src.tar.gz", repoName, comparisonRef)
+	artifactPath := filepath.Join(artifactsPath, artifactFile)
+
+	return artifactFile, artifactPath
 }
 
 func (s *ArtifactStorage) prepareComparisonDir(path string) error {
@@ -92,7 +134,7 @@ func (s *ArtifactStorage) downloadArtifact(username, password, artifactFile, art
 		return nil
 	}
 
-	cli.Println("Local artifact not found")
+	cli.Println("Local artifact %s not found", artifactFile)
 	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", artifactsRepositoryDomain, repo, artifactFile)
 	cli.Println("Attempting to download artifact: %s", url)
 
@@ -139,7 +181,7 @@ func (s *ArtifactStorage) downloadArtifact(username, password, artifactFile, art
 			return errors.New("invalid credentials")
 		}
 		if statusCode == http.StatusNotFound {
-			return errors.New("artifact was not found")
+			return errArtifactNotFound
 		}
 
 		return fmt.Errorf("unexpected status code: %d while trying to get %s", statusCode, url)
