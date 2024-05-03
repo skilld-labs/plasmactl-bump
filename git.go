@@ -79,29 +79,30 @@ func (r *BumperRepo) getModifiedFiles(last bool) ([]string, error) {
 		return nil, err
 	}
 
-	parentCommit, err := headCommit.Parent(0)
+	commits, err := r.git.Log(&git.LogOptions{From: headRef.Hash()})
 	if err != nil {
 		return nil, err
 	}
 
+	var prevCommit *object.Commit
 	commitsNum := 0
-	for {
-		if commitsNum > 0 {
-			headCommit = parentCommit
+
+	err = commits.ForEach(func(commit *object.Commit) error {
+		commitsNum++
+
+		// Process last commit.
+		if prevCommit == nil {
+			prevCommit = commit
+			return nil
 		}
 
-		headTree, _ := headCommit.Tree()
+		// Process previous commits.
+		prevTree, _ := prevCommit.Tree()
+		currentTree, _ := commit.Tree()
 
-		parentCommit, err = headCommit.Parent(0)
-		if err != nil {
-			return nil, err
-		}
-
-		parentTree, _ := parentCommit.Tree()
-
-		diff, err := parentTree.Diff(headTree)
-		if err != nil {
-			return nil, err
+		diff, diffErr := currentTree.Diff(prevTree)
+		if diffErr != nil {
+			return diffErr
 		}
 
 		for _, ch := range diff {
@@ -121,12 +122,27 @@ func (r *BumperRepo) getModifiedFiles(last bool) ([]string, error) {
 		}
 
 		if last {
-			break
+			return storer.ErrStop
+		}
+		if strings.TrimSpace(commit.Author.Name) == r.name {
+			return storer.ErrStop
 		}
 
-		commitsNum++
-		if strings.TrimSpace(parentCommit.Author.Name) == r.name {
-			break
+		prevCommit = commit
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if commitsNum == 1 {
+		headTree, _ := headCommit.Tree()
+		err = headTree.Files().ForEach(func(file *object.File) error {
+			modifiedFiles = append(modifiedFiles, file.Name)
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
 
