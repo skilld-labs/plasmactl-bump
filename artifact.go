@@ -56,7 +56,7 @@ func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) error 
 
 		archivePath = artifactPath
 	} else {
-		hash, errHash := s.repo.git.ResolveRevision("HEAD~1")
+		hash, errHash := s.repo.git.ResolveRevision("HEAD")
 		if errHash != nil {
 			return errHash
 		}
