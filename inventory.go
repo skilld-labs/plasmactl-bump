@@ -2,6 +2,7 @@ package plasmactlbump
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -309,6 +310,14 @@ func (i *Inventory) loadVariablesFile(path, vaultPassword string, isVault bool) 
 	if isVault {
 		sourceVault, errDecrypt := vault.DecryptFile(cleanPath, vaultPassword)
 		if errDecrypt != nil {
+			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
+				return data, fmt.Errorf("error decrypting vault %s, password is blank", cleanPath)
+			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
+				return data, fmt.Errorf("error decrypting vault %s, invalid secret format", cleanPath)
+			} else if errDecrypt.Error() == "invalid password" {
+				return data, fmt.Errorf("invalid password for vault '%s'", cleanPath)
+			}
+
 			return data, errDecrypt
 		}
 		rawData = []byte(sourceVault)
