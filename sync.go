@@ -163,7 +163,7 @@ func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string) error {
 
 	if updatedResources.Len() > 0 {
 		updatedResources.OrderBy(inv.GetResourcesOrder())
-		s.printResources("Resources whose version need to be propagated:", updatedResources)
+		s.printResources("Resources whose version was already updated and require propagation:", updatedResources)
 	}
 
 	if updatedVarResources.Len() > 0 {
