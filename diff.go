@@ -24,6 +24,7 @@ var excludeSubDirs = []string{
 // and an error. It compares the files in the two directories (excluding subdirectories
 // specified in the excludeSubDirs variable) and checks if they are equal. If a file is
 // modified, its path is added to the updated slice.
+// @todo update name and description as new behavior was added. Re-use better compare utils.
 func GetDiffFiles(dirA, dirB string) ([]string, error) {
 	updated, err := compareDirectories(dirA, dirB, excludeSubDirs)
 	return updated, err
@@ -44,6 +45,8 @@ func compareDirectories(dirA, dirB string, excludeSubDirs []string) ([]string, e
 	for f := range filesInDirA {
 		_, found := filesInDirB[f]
 		if !found {
+			// If file was added or removed consider it as potential resource change.
+			updated = append(updated, f)
 			continue
 		}
 		fileA := filepath.Join(dirA, f)
