@@ -234,10 +234,10 @@ func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedResource
 // It takes a slice of modified file paths as input.
 // It returns the resources as an OrderedResourceMap and the variable maps as a map[string]map[string]bool.
 // If there are no changed variables, it returns nil for both the resources and variable maps.
-func (i *Inventory) GetChangedVarsResources(modifiedFiles []string) (*OrderedResourceMap, map[string]map[string]bool, error) {
+func (i *Inventory) GetChangedVarsResources(modifiedFiles []string) (*OrderedResourceMap, map[string]map[string]*Variable, error) {
 	variables, err := i.getChangedVariables(modifiedFiles)
 	if len(variables) == 0 || err != nil {
-		return NewOrderedResourceMap(), make(map[string]map[string]bool), err
+		return NewOrderedResourceMap(), make(map[string]map[string]*Variable), err
 	}
 
 	resources, resourceVariablesMap, err := i.searchVariablesResources(variables)
@@ -332,9 +332,9 @@ func (i *Inventory) loadVariablesFile(path, vaultPassword string, isVault bool) 
 	return data, err
 }
 
-func (i *Inventory) searchVariablesResources(variables map[string]*Variable) (*OrderedResourceMap, map[string]map[string]bool, error) {
+func (i *Inventory) searchVariablesResources(variables map[string]*Variable) (*OrderedResourceMap, map[string]map[string]*Variable, error) {
 	resources := NewOrderedResourceMap()
-	resourceVariablesMap := make(map[string]map[string]bool)
+	resourceVariablesMap := make(map[string]map[string]*Variable)
 
 	splitByPlatform := make(map[string]map[string]*Variable)
 	dependentVariables := make(map[string]map[string]bool)
@@ -388,15 +388,15 @@ func (i *Inventory) searchVariablesResources(variables map[string]*Variable) (*O
 		}
 
 		if _, ok := resourceVariablesMap[resource.GetName()]; !ok {
-			resourceVariablesMap[resource.GetName()] = make(map[string]bool)
+			resourceVariablesMap[resource.GetName()] = make(map[string]*Variable)
 		}
 
 		for variable := range vars {
 			if _, ok := dependentVariables[variable]; !ok {
-				resourceVariablesMap[resource.GetName()][variable] = true
+				resourceVariablesMap[resource.GetName()][variable] = variables[variable]
 			} else {
 				for name := range dependentVariables[variable] {
-					resourceVariablesMap[resource.GetName()][name] = true
+					resourceVariablesMap[resource.GetName()][name] = variables[variable]
 				}
 			}
 		}
