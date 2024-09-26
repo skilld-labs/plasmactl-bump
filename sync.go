@@ -286,7 +286,7 @@ func (s *SyncAction) printResources(message string, resources *OrderedResourceMa
 	}
 }
 
-func (s *SyncAction) printVariablesInfo(rvm map[string]map[string]bool) {
+func (s *SyncAction) printVariablesInfo(rvm map[string]map[string]*Variable) {
 	if len(rvm) == 0 {
 		return
 	}
@@ -304,10 +304,10 @@ func (s *SyncAction) printVariablesInfo(rvm map[string]map[string]bool) {
 	}
 }
 
-func (s *SyncAction) generateVariablesHash(vars map[string]bool) string {
+func (s *SyncAction) generateVariablesHash(vars map[string]*Variable) string {
 	keys := make([]string, 0, len(vars))
-	for k := range vars {
-		keys = append(keys, k)
+	for k, v := range vars {
+		keys = append(keys, fmt.Sprintf("%s:%d", k, v.hash))
 	}
 
 	key := strings.Join(keys, "__")
