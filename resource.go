@@ -206,6 +206,24 @@ func (orm *OrderedResourceMap) Set(key string, value *Resource) {
 	orm.dict[key] = value
 }
 
+// Unset a value from the OrderedResourceMap.
+func (orm *OrderedResourceMap) Unset(key string) {
+	if _, ok := orm.dict[key]; ok {
+		index := -1
+		for i, item := range orm.keys {
+			if item == key {
+				index = i
+			}
+		}
+		if index != -1 {
+			orm.keys = append(orm.keys[:index], orm.keys[index+1:]...)
+		}
+
+	}
+
+	delete(orm.dict, key)
+}
+
 // Get a value from the OrderedResourceMap.
 func (orm *OrderedResourceMap) Get(key string) (*Resource, bool) {
 	val, ok := orm.dict[key]
