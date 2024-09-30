@@ -1,4 +1,4 @@
-package plasmactlbump
+package sync
 
 import (
 	"bufio"
@@ -9,18 +9,33 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/launchrctl/launchr/pkg/log"
+	"github.com/launchrctl/launchr"
 	vault "github.com/sosedoff/ansible-vault-go"
 	"github.com/stevenle/topsort"
 	"gopkg.in/yaml.v3"
 )
 
 const (
+	invalidPasswordErrText = "invalid password"
+
 	rootPlatform    = "platform"
 	variablePattern = "(?:\\s|{|\\|)(%s)(?:\\s|}|\\|)"
 )
 
-var kinds = map[string]string{
+// InventoryExcluded is list of excluded files and folders from inventory.
+var InventoryExcluded = []string{
+	".git",
+	".compose",
+	".plasmactl",
+	".gitlab-ci.yml",
+	"ansible_collections",
+	"scripts/ci/.gitlab-ci.platform.yaml",
+	"venv",
+	"__pycache__",
+}
+
+// Kinds are list of target resources.
+var Kinds = map[string]string{
 	"application": "applications",
 	"service":     "services",
 	"software":    "softwares",
@@ -43,6 +58,31 @@ type Variable struct {
 	isVault  bool
 }
 
+// GetPath returns path to variable file.
+func (v *Variable) GetPath() string {
+	return v.filepath
+}
+
+// GetPlatform returns variable platform.
+func (v *Variable) GetPlatform() string {
+	return v.platform
+}
+
+// GetName returns variable name.
+func (v *Variable) GetName() string {
+	return v.name
+}
+
+// GetHash returns variable [Variable.hash]
+func (v *Variable) GetHash() uint64 {
+	return v.hash
+}
+
+// IsVault tells if variable from vault.
+func (v *Variable) IsVault() bool {
+	return v.isVault
+}
+
 type resourceDependencies struct {
 	Name        string `yaml:"name"`
 	IncludeRole struct {
@@ -52,26 +92,29 @@ type resourceDependencies struct {
 
 // Inventory represents the inventory used in the application to search and collect resources and variable resources.
 type Inventory struct {
-	vaultPassword    string
+	// services
 	ResourcesCrawler *ResourcesCrawler
-	requiredMap      map[string]map[string]bool
-	dependencyMap    map[string]map[string]bool
-	resourcesOrder   []string
-	sourceDir        string
-	comparisonDir    string
+
+	//internal
+	resourcesMap   map[string]bool
+	requiredMap    map[string]map[string]bool
+	dependencyMap  map[string]map[string]bool
+	resourcesOrder []string
+
+	// options
+	sourceDir string
 }
 
 // NewInventory creates a new instance of Inventory with the provided vault password.
 // It then calls the Init method of the Inventory to build the resources graph and returns
 // the initialized Inventory or any error that occurred during initialization.
-func NewInventory(vaultpass, sourceDir, comparisonDir string) (*Inventory, error) {
+func NewInventory(sourceDir string) (*Inventory, error) {
 	inv := &Inventory{
-		vaultPassword:    vaultpass,
+		sourceDir:        sourceDir,
 		ResourcesCrawler: NewResourcesCrawler(sourceDir),
+		resourcesMap:     make(map[string]bool),
 		requiredMap:      make(map[string]map[string]bool),
 		dependencyMap:    make(map[string]map[string]bool),
-		sourceDir:        sourceDir,
-		comparisonDir:    comparisonDir,
 	}
 
 	err := inv.Init()
@@ -84,6 +127,11 @@ func NewInventory(vaultpass, sourceDir, comparisonDir string) (*Inventory, error
 func (i *Inventory) Init() error {
 	err := i.buildResourcesGraph()
 	return err
+}
+
+// GetResourcesMap returns map of all resources found in source dir.
+func (i *Inventory) GetResourcesMap() map[string]bool {
+	return i.resourcesMap
 }
 
 // GetResourcesOrder returns the order of resources in the inventory.
@@ -115,7 +163,7 @@ func (i *Inventory) buildResourcesGraph() error {
 		}
 
 		relPath := strings.TrimPrefix(path, i.sourceDir+"/")
-		for _, d := range excludeSubDirs {
+		for _, d := range InventoryExcluded {
 			if strings.Contains(relPath, d) {
 				return nil
 			}
@@ -125,7 +173,7 @@ func (i *Inventory) buildResourcesGraph() error {
 
 		switch entity {
 		case "dependencies.yaml":
-			platform, kind, role, errPath := processResourcePath(relPath)
+			platform, kind, role, errPath := ProcessResourcePath(relPath)
 			if errPath != nil {
 				break
 			}
@@ -134,10 +182,12 @@ func (i *Inventory) buildResourcesGraph() error {
 				break
 			}
 
-			resourceName := prepareResourceName(platform, kind, role)
-			if !isUpdatableKind(kind) {
+			resourceName := PrepareMachineResourceName(platform, kind, role)
+			if !IsUpdatableKind(kind) {
 				break
 			}
+
+			i.resourcesMap[resourceName] = true
 
 			data, errRead := os.ReadFile(filepath.Clean(path))
 			if errRead != nil {
@@ -223,7 +273,6 @@ func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedResource
 		if _, ok := resources.Get(resource.GetName()); ok {
 			continue
 		}
-		log.Debug("Processing resource %s", resource.GetName())
 		resources.Set(resource.GetName(), resource)
 	}
 
@@ -234,20 +283,22 @@ func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedResource
 // It takes a slice of modified file paths as input.
 // It returns the resources as an OrderedResourceMap and the variable maps as a map[string]map[string]bool.
 // If there are no changed variables, it returns nil for both the resources and variable maps.
-func (i *Inventory) GetChangedVarsResources(modifiedFiles []string) (*OrderedResourceMap, map[string]map[string]bool, error) {
-	variables, err := i.getChangedVariables(modifiedFiles)
+func (i *Inventory) GetChangedVarsResources(modifiedFiles []string, comparisonDir, vaultpass string) (*OrderedResourceMap, map[string]map[string]bool, error) {
+	variables, _, err := i.GetChangedVariables(modifiedFiles, comparisonDir, vaultpass)
 	if len(variables) == 0 || err != nil {
 		return NewOrderedResourceMap(), make(map[string]map[string]bool), err
 	}
 
-	resources, resourceVariablesMap, err := i.searchVariablesResources(variables)
+	resources, resourceVariablesMap, err := i.SearchVariablesAffectedResources(variables)
 	return resources, resourceVariablesMap, err
 }
 
-func (i *Inventory) getChangedVariables(modifiedFiles []string) (map[string]*Variable, error) {
+// GetChangedVariables fetches variables file from list, compare them with comparison dir files and fetches changed vars.
+func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, vaultpass string) (map[string]*Variable, map[string]*Variable, error) {
 	changedVariables := make(map[string]*Variable)
+	deletedVariables := make(map[string]*Variable)
 	for _, path := range modifiedFiles {
-		platform, kind, role, errPath := processResourcePath(path)
+		platform, kind, role, errPath := ProcessResourcePath(path)
 		if errPath != nil {
 			continue
 		}
@@ -261,78 +312,122 @@ func (i *Inventory) getChangedVariables(modifiedFiles []string) (map[string]*Var
 		}
 
 		sourcePath := filepath.Join(i.sourceDir, path)
-		artifactPath := filepath.Join(i.comparisonDir, path)
+		artifactPath := filepath.Join(comparisonDir, path)
 		isVault := isVaultFile(path)
 
-		sourceData, err := i.loadVariablesFile(sourcePath, i.vaultPassword, isVault)
-		if err != nil {
-			return changedVariables, err
-		}
+		_, err1 := os.Stat(sourcePath)
+		sourceFileExists := !os.IsNotExist(err1)
+		_, err2 := os.Stat(artifactPath)
+		artifactFileExists := !os.IsNotExist(err2)
 
-		artifactData, err := i.loadVariablesFile(artifactPath, i.vaultPassword, isVault)
-		if err != nil {
-			return changedVariables, err
-		}
+		if sourceFileExists && artifactFileExists {
+			sourceData, err := LoadVariablesFile(sourcePath, vaultpass, isVault)
+			if err != nil {
+				return changedVariables, deletedVariables, err
+			}
 
-		for k, sv := range sourceData {
-			if av, ok := artifactData[k]; ok {
-				sourceValue := fmt.Sprint(sv)
-				artifactValue := fmt.Sprint(av)
+			artifactData, err := LoadVariablesFile(artifactPath, vaultpass, isVault)
+			if err != nil {
+				return changedVariables, deletedVariables, err
+			}
 
-				sourceHash := hashString(sourceValue)
-				artifactHash := hashString(artifactValue)
+			// Check for updated vars in existing files
+			for k, sv := range sourceData {
+				if av, ok := artifactData[k]; ok {
+					sourceValue := fmt.Sprint(sv)
+					artifactValue := fmt.Sprint(av)
 
-				if sourceHash != artifactHash {
-					changedVar := &Variable{
+					sourceHash := HashString(sourceValue)
+					artifactHash := HashString(artifactValue)
+
+					if sourceHash != artifactHash {
+						changedVar := &Variable{
+							filepath: path,
+							name:     k,
+							hash:     sourceHash,
+							platform: platform,
+							isVault:  isVault,
+						}
+
+						changedVariables[changedVar.name] = changedVar
+					}
+				} else {
+					// Handle new variable.
+					sourceValue := fmt.Sprint(sv)
+					newVar := &Variable{
 						filepath: path,
 						name:     k,
-						hash:     sourceHash,
+						hash:     HashString(sourceValue),
 						platform: platform,
 						isVault:  isVault,
 					}
 
-					changedVariables[changedVar.name] = changedVar
+					changedVariables[newVar.name] = newVar
 				}
 			}
-		}
 
-	}
+			// Check for deleted vars in existing files
+			for k, av := range artifactData {
+				if _, ok := sourceData[k]; !ok {
+					artifactValue := fmt.Sprint(av)
+					deletedVar := &Variable{
+						filepath: path,
+						name:     k,
+						hash:     HashString(artifactValue),
+						platform: platform,
+						isVault:  isVault,
+					}
 
-	return changedVariables, nil
-}
-
-func (i *Inventory) loadVariablesFile(path, vaultPassword string, isVault bool) (map[string]interface{}, error) {
-	var data map[string]interface{}
-	var rawData []byte
-	var err error
-
-	cleanPath := filepath.Clean(path)
-	if isVault {
-		sourceVault, errDecrypt := vault.DecryptFile(cleanPath, vaultPassword)
-		if errDecrypt != nil {
-			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
-				return data, fmt.Errorf("error decrypting vault %s, password is blank", cleanPath)
-			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
-				return data, fmt.Errorf("error decrypting vault %s, invalid secret format", cleanPath)
-			} else if errDecrypt.Error() == "invalid password" {
-				return data, fmt.Errorf("invalid password for vault '%s'", cleanPath)
+					deletedVariables[deletedVar.name] = deletedVar
+				}
 			}
 
-			return data, errDecrypt
-		}
-		rawData = []byte(sourceVault)
-	} else {
-		rawData, err = os.ReadFile(cleanPath)
-		if err != nil {
-			return data, err
+		} else if sourceFileExists && !artifactFileExists {
+			// New vars file, add all variable to propagate.
+			sourceData, err := LoadVariablesFile(sourcePath, vaultpass, isVault)
+			if err != nil {
+				return changedVariables, deletedVariables, err
+			}
+			for k, sv := range sourceData {
+				sourceValue := fmt.Sprint(sv)
+				newVar := &Variable{
+					filepath: path,
+					name:     k,
+					hash:     HashString(sourceValue),
+					platform: platform,
+					isVault:  isVault,
+				}
+
+				changedVariables[newVar.name] = newVar
+			}
+
+		} else if !sourceFileExists && artifactFileExists {
+			// Vars file was deleted, find all removed variables.
+			artifactData, err := LoadVariablesFile(artifactPath, vaultpass, isVault)
+			if err != nil {
+				return changedVariables, deletedVariables, err
+			}
+
+			for k, av := range artifactData {
+				artifactValue := fmt.Sprint(av)
+				deletedVar := &Variable{
+					filepath: path,
+					name:     k,
+					hash:     HashString(artifactValue),
+					platform: platform,
+					isVault:  isVault,
+				}
+
+				deletedVariables[deletedVar.name] = deletedVar
+			}
 		}
 	}
 
-	err = yaml.Unmarshal(rawData, &data)
-	return data, err
+	return changedVariables, deletedVariables, nil
 }
 
-func (i *Inventory) searchVariablesResources(variables map[string]*Variable) (*OrderedResourceMap, map[string]map[string]bool, error) {
+// SearchVariablesAffectedResources crawls inventory to find if variables were used in [Inventory.SourceDir] resources.
+func (i *Inventory) SearchVariablesAffectedResources(variables map[string]*Variable) (*OrderedResourceMap, map[string]map[string]bool, error) {
 	resources := NewOrderedResourceMap()
 	resourceVariablesMap := make(map[string]map[string]bool)
 
@@ -381,7 +476,7 @@ func (i *Inventory) searchVariablesResources(variables map[string]*Variable) (*O
 			continue
 		}
 		if val, ok := resources.Get(resource.GetName()); !ok {
-			log.Debug("Processing resource %s", resource.GetName())
+			launchr.Log().Debug(fmt.Sprintf("Processing resource %s", resource.GetName()))
 			resources.Set(resource.GetName(), resource)
 		} else {
 			resource = val
@@ -421,11 +516,18 @@ func (i *Inventory) pushRequiredVariables(requiredMap map[string]map[string]bool
 
 func (i *Inventory) crawlVariableUsage(variable *Variable, dependents map[string]*Variable) error {
 	var files []string
+	var err error
 
 	if variable.isVault || variable.platform != rootPlatform {
-		files = i.ResourcesCrawler.FindGroupVarsFiles(variable.platform)
+		files, err = i.ResourcesCrawler.FindGroupVarsFiles(variable.platform)
+		if err != nil {
+			return err
+		}
 	} else if variable.platform == rootPlatform {
-		files = i.ResourcesCrawler.FindGroupVarsFiles("")
+		files, err = i.ResourcesCrawler.FindGroupVarsFiles("")
+		if err != nil {
+			return err
+		}
 	}
 
 	//if i.variablesTree == nil {
@@ -476,7 +578,7 @@ func NewResourcesCrawler(directory string) *ResourcesCrawler {
 	}
 }
 
-func (cr *ResourcesCrawler) findFilesByPattern(filenamePattern, kind, platform string, partsCount, platformPart, rolePart, kindPart int) []string {
+func (cr *ResourcesCrawler) findFilesByPattern(filenamePattern, kind, platform string, partsCount, platformPart, rolePart, kindPart int) ([]string, error) {
 	var files []string
 	dir := filepath.Join(cr.rootDir, platform)
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -510,15 +612,11 @@ func (cr *ResourcesCrawler) findFilesByPattern(filenamePattern, kind, platform s
 		return nil
 	})
 
-	if err != nil {
-		panic(err)
-	}
-
-	return files
+	return files, err
 }
 
 // FindTaskFiles returns a slice of file paths that match certain criteria for tasks on a specific platform.
-func (cr *ResourcesCrawler) FindTaskFiles(platform string) []string {
+func (cr *ResourcesCrawler) FindTaskFiles(platform string) ([]string, error) {
 	return cr.findFilesByPattern(
 		"*.yaml",
 		"tasks",
@@ -531,7 +629,7 @@ func (cr *ResourcesCrawler) FindTaskFiles(platform string) []string {
 }
 
 // FindDefaultFiles returns a slice of file paths that match certain criteria for defaults on a specific platform.
-func (cr *ResourcesCrawler) FindDefaultFiles(platform string) []string {
+func (cr *ResourcesCrawler) FindDefaultFiles(platform string) ([]string, error) {
 	return cr.findFilesByPattern(
 		"*.yaml",
 		"defaults",
@@ -544,7 +642,7 @@ func (cr *ResourcesCrawler) FindDefaultFiles(platform string) []string {
 }
 
 // FindTemplateFiles returns a slice of file paths that match certain criteria for templates on a specific platform.
-func (cr *ResourcesCrawler) FindTemplateFiles(platform string) []string {
+func (cr *ResourcesCrawler) FindTemplateFiles(platform string) ([]string, error) {
 	return cr.findFilesByPattern(
 		"*.j2",
 		"templates",
@@ -557,7 +655,7 @@ func (cr *ResourcesCrawler) FindTemplateFiles(platform string) []string {
 }
 
 // FindGroupVarsFiles returns a slice of file paths that match certain criteria for group vars on a specific platform.
-func (cr *ResourcesCrawler) FindGroupVarsFiles(platform string) []string {
+func (cr *ResourcesCrawler) FindGroupVarsFiles(platform string) ([]string, error) {
 	return cr.findFilesByPattern(
 		"vars.yaml",
 		"group_vars",
@@ -589,7 +687,7 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 	}
 
 	for _, path := range files {
-		platform, _, _, errPath := processResourcePath(path)
+		platform, _, _, errPath := ProcessResourcePath(path)
 		if errPath != nil {
 			return variables, errPath
 		}
@@ -597,14 +695,14 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 		sourcePath := filepath.Clean(filepath.Join(cr.rootDir, path))
 		sourceVariables, errRead := os.ReadFile(sourcePath)
 		if errRead != nil {
-			log.Debug("Error reading YAML file: %s\n", errRead)
+			launchr.Log().Debug(fmt.Sprintf("Error reading YAML file: %s\n", errRead))
 			return variables, errRead
 		}
 
-		var sourceData map[string]interface{}
+		var sourceData map[string]any
 		errMarshal := yaml.Unmarshal(sourceVariables, &sourceData)
 		if errMarshal != nil {
-			log.Debug("Unable to unmarshal YAML file: %s", errMarshal)
+			launchr.Log().Debug(fmt.Sprintf("Unable to unmarshal YAML file: %s", errMarshal))
 			return variables, errRead
 		}
 
@@ -618,7 +716,7 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 				variables = append(variables, &Variable{
 					filepath: path,
 					name:     k,
-					hash:     hashString(sourceValue),
+					hash:     HashString(sourceValue),
 					isVault:  isVaultFile(path),
 					platform: platform,
 				})
@@ -636,21 +734,31 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 // It then scans each line of the file and checks if it contains any of the variables in the toIterate slice. If a variable is found, it adds it to the foundList map.
 // After scanning all the files, it updates the resources map with the variables found in each file.
 func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[string]*Variable, resources map[string]map[string]bool) error {
+	var err error
 	searchPlatform := platform
 	if searchPlatform == rootPlatform {
 		searchPlatform = ""
 	}
 
 	if _, ok := cr.taskSources[platform]; !ok {
-		cr.taskSources[platform] = cr.FindTaskFiles(searchPlatform)
+		cr.taskSources[platform], err = cr.FindTaskFiles(searchPlatform)
+		if err != nil {
+			return err
+		}
 	}
 
 	if _, ok := cr.templateSources[platform]; !ok {
-		cr.templateSources[platform] = cr.FindTemplateFiles(searchPlatform)
+		cr.templateSources[platform], err = cr.FindTemplateFiles(searchPlatform)
+		if err != nil {
+			return err
+		}
 	}
 
 	if _, ok := cr.defaultsSources[platform]; !ok {
-		cr.defaultsSources[platform] = cr.FindDefaultFiles(searchPlatform)
+		cr.defaultsSources[platform], err = cr.FindDefaultFiles(searchPlatform)
+		if err != nil {
+			return err
+		}
 	}
 
 	files := append(cr.taskSources[platform], cr.templateSources[platform]...)
@@ -671,7 +779,7 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 		sourcePath := filepath.Clean(filepath.Join(cr.rootDir, file))
 		f, err := os.Open(sourcePath)
 		if err != nil {
-			log.Debug("Error opening file %s: %v", file, err)
+			launchr.Log().Debug(fmt.Sprintf("Error opening file %s: %v", file, err))
 			return err
 		}
 
@@ -711,7 +819,7 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 		}
 
 		if err = s.Err(); err != nil {
-			log.Debug("Error reading file %s: %v", file, err)
+			launchr.Log().Debug(fmt.Sprintf("Error reading file %s: %v", file, err))
 			continue
 		}
 
@@ -728,4 +836,75 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 
 func isVaultFile(path string) bool {
 	return filepath.Base(path) == "vault.yaml"
+}
+
+// LoadVariablesFile loads vars yaml file from path.
+func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any, error) {
+	var data map[string]any
+	var rawData []byte
+	var err error
+
+	cleanPath := filepath.Clean(path)
+	if isVault {
+		sourceVault, errDecrypt := vault.DecryptFile(cleanPath, vaultPassword)
+		if errDecrypt != nil {
+			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
+				return data, fmt.Errorf("error decrypting vault %s, password is blank", cleanPath)
+			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
+				return data, fmt.Errorf("error decrypting vault %s, invalid secret format", cleanPath)
+			} else if errDecrypt.Error() == invalidPasswordErrText {
+				return data, fmt.Errorf("invalid password for vault '%s'", cleanPath)
+			}
+
+			return data, errDecrypt
+		}
+		rawData = []byte(sourceVault)
+	} else {
+		rawData, err = os.ReadFile(cleanPath)
+		if err != nil {
+			return data, err
+		}
+	}
+
+	err = yaml.Unmarshal(rawData, &data)
+	return data, err
+}
+
+// LoadVariablesFileFromBytes loads vars yaml file from bytes input.
+func LoadVariablesFileFromBytes(input []byte, vaultPassword string, isVault bool) (map[string]any, error) {
+	var data map[string]any
+	var rawData []byte
+	var err error
+
+	if isVault {
+		sourceVault, errDecrypt := vault.Decrypt(string(input), vaultPassword)
+		if errDecrypt != nil {
+			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
+				return data, fmt.Errorf("error decrypting vaults, password is blank")
+			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
+				return data, fmt.Errorf("error decrypting vault, invalid secret format")
+			} else if errDecrypt.Error() == invalidPasswordErrText {
+				return data, fmt.Errorf("invalid password for vault")
+			}
+
+			return data, errDecrypt
+		}
+		rawData = []byte(sourceVault)
+	} else {
+		rawData = input
+	}
+
+	err = yaml.Unmarshal(rawData, &data)
+	return data, err
+}
+
+// LoadYamlFileFromBytes loads yaml file from bytes input.
+func LoadYamlFileFromBytes(input []byte) (map[string]any, error) {
+	var data map[string]any
+	var rawData []byte
+	var err error
+
+	rawData = input
+	err = yaml.Unmarshal(rawData, &data)
+	return data, err
 }

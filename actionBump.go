@@ -6,14 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/launchrctl/launchr"
-	"github.com/launchrctl/launchr/pkg/cli"
-)
-
-var (
-	errEmptyPath     = errors.New("empty resource path")
-	errNoUpdate      = errors.New("no resources to update")
-	errSkipBadCommit = errors.New("skipping bump, as the latest commit is already by the bumper tool")
-	errFailedMeta    = errors.New("failed to open plasma.yaml")
+	"github.com/skilld-labs/plasmactl-bump/pkg/repository"
+	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
 )
 
 var unversionedFiles = map[string]struct{}{
@@ -52,60 +46,59 @@ func (k *bumpService) ServiceInfo() launchr.ServiceInfo {
 }
 
 func printMemo() {
-	fmt.Println("List of unversioned files:")
+	launchr.Log().Info("List of non-versioned files:")
 	for k := range unversionedFiles {
-		fmt.Println(k)
+		launchr.Log().Info(k)
 	}
-	fmt.Print("\n")
 }
 
 func (k *bumpService) Bump(last bool) error {
-	fmt.Println("Bump updated versions...")
+	launchr.Term().Println("Bump updated versions...")
 	printMemo()
 
-	git, err := getRepo()
+	bumper, err := repository.NewBumper()
 	if err != nil {
 		return err
 	}
 
-	if git.IsOwnCommit() {
-		return errSkipBadCommit
+	if bumper.IsOwnCommit() {
+		return errors.New("skipping bump, as the latest commit is already by the bumper tool")
 	}
 
-	files, err := git.getModifiedFiles(last)
+	files, err := bumper.GetModifiedFiles(last)
 	if err != nil {
 		return err
 	}
 
 	resources := k.collectResources(files)
 	if len(resources) == 0 {
-		return errNoUpdate
+		return errors.New("no resources to update")
 	}
 
-	version, err := git.GetLastCommitShortHash()
+	version, err := bumper.GetLastCommitShortHash()
 	if err != nil {
-		fmt.Println("Can't retrieve commit hash")
+		launchr.Log().Error("Can't retrieve commit hash")
 		return err
 	}
 
 	err = k.updateResources(resources, version)
 	if err != nil {
-		fmt.Println("There is an error during resources update")
+		launchr.Log().Error("There is an error during resources update")
 		return err
 	}
 
-	return git.Commit()
+	return bumper.Commit()
 }
 
-func (k *bumpService) collectResources(files []string) map[string]*Resource {
+func (k *bumpService) collectResources(files []string) map[string]*sync.Resource {
 	// @TODO re-use inventory.GetChangedResources()
-	resources := make(map[string]*Resource)
+	resources := make(map[string]*sync.Resource)
 	for _, path := range files {
 		if !isVersionableFile(path) {
 			continue
 		}
 
-		platform, kind, role, err := processResourcePath(path)
+		platform, kind, role, err := sync.ProcessResourcePath(path)
 		if err != nil {
 			continue
 		}
@@ -114,15 +107,15 @@ func (k *bumpService) collectResources(files []string) map[string]*Resource {
 			continue
 		}
 
-		if isUpdatableKind(kind) {
-			resource := newResource(prepareResourceName(platform, kind, role), "")
+		if sync.IsUpdatableKind(kind) {
+			resource := sync.NewResource(sync.PrepareMachineResourceName(platform, kind, role), "")
 			if _, ok := resources[resource.GetName()]; !ok {
 				// Check is meta/plasma.yaml exists for resource
-				if !resource.isValidResource() {
+				if !resource.IsValidResource() {
 					continue
 				}
 
-				fmt.Printf("Processing resource %s\n", resource.GetName())
+				launchr.Term().Printfln("Processing resource %s", resource.GetName())
 				resources[resource.GetName()] = resource
 			}
 		}
@@ -132,19 +125,19 @@ func (k *bumpService) collectResources(files []string) map[string]*Resource {
 	return resources
 }
 
-func (k *bumpService) updateResources(resources map[string]*Resource, version string) error {
+func (k *bumpService) updateResources(resources map[string]*sync.Resource, version string) error {
 	if len(resources) == 0 {
 		return nil
 	}
 
-	cli.Println("Updating versions:")
+	launchr.Term().Printf("Updating versions:\n")
 	for _, r := range resources {
 		currentVersion, err := r.GetVersion()
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("- %s from %s to %s\n", r.GetName(), currentVersion, version)
+		launchr.Term().Printfln("- %s from %s to %s", r.GetName(), currentVersion, version)
 		err = r.UpdateVersion(version)
 		if err != nil {
 			return err
