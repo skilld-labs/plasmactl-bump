@@ -90,6 +90,21 @@ func (r *Resource) GetVersion() (string, error) {
 	return "", errFailedMeta
 }
 
+// GetBaseVersion.....
+func (r *Resource) GetBaseVersion() (string, error) {
+	version, err := r.GetVersion()
+	if err != nil {
+		return "", err
+	}
+
+	split := strings.Split(version, "-")
+	if len(split) > 2 {
+		panic("your version format is wrong...probably")
+	}
+
+	return split[0], nil
+}
+
 // UpdateVersion updates the version of the resource in the plasma.yaml file
 func (r *Resource) UpdateVersion(version string) error {
 	metaFile := r.buildMetaPath()

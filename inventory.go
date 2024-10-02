@@ -54,6 +54,7 @@ type resourceDependencies struct {
 type Inventory struct {
 	vaultPassword    string
 	ResourcesCrawler *ResourcesCrawler
+	resourcesMap     map[string]bool
 	requiredMap      map[string]map[string]bool
 	dependencyMap    map[string]map[string]bool
 	resourcesOrder   []string
@@ -68,6 +69,7 @@ func NewInventory(vaultpass, sourceDir, comparisonDir string) (*Inventory, error
 	inv := &Inventory{
 		vaultPassword:    vaultpass,
 		ResourcesCrawler: NewResourcesCrawler(sourceDir),
+		resourcesMap:     make(map[string]bool),
 		requiredMap:      make(map[string]map[string]bool),
 		dependencyMap:    make(map[string]map[string]bool),
 		sourceDir:        sourceDir,
@@ -84,6 +86,11 @@ func NewInventory(vaultpass, sourceDir, comparisonDir string) (*Inventory, error
 func (i *Inventory) Init() error {
 	err := i.buildResourcesGraph()
 	return err
+}
+
+// @todo add description, refactor ?
+func (i *Inventory) GetResourcesMap() map[string]bool {
+	return i.resourcesMap
 }
 
 // GetResourcesOrder returns the order of resources in the inventory.
@@ -138,6 +145,8 @@ func (i *Inventory) buildResourcesGraph() error {
 			if !isUpdatableKind(kind) {
 				break
 			}
+
+			i.resourcesMap[resourceName] = true
 
 			data, errRead := os.ReadFile(filepath.Clean(path))
 			if errRead != nil {
