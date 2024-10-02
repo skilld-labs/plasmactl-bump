@@ -3,9 +3,16 @@ package plasmactlbump
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/launchrctl/compose/compose"
+	"gopkg.in/yaml.v3"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -30,6 +37,7 @@ const (
 type SyncAction struct {
 	sourceDir     string
 	comparisonDir string
+	packagesDir   string
 	dryRun        bool
 	keyring       keyring.Keyring
 	saveKeyring   bool
@@ -127,6 +135,7 @@ func (s *SyncAction) prepareArtifact(username, password, override string) (*plum
 type CommitInfo struct {
 	Hash         string
 	ChangedFiles []string
+	timestamp    time.Time
 }
 
 func testGitChanges(hash *plumbing.Hash) []*CommitInfo {
@@ -149,7 +158,7 @@ func testGitChanges(hash *plumbing.Hash) []*CommitInfo {
 		}
 
 		if strings.Contains(c.Message, "versions bump") {
-			fmt.Println(c.Hash)
+			//fmt.Println(c.Hash)
 			stats, err := c.Stats()
 			if err != nil {
 				panic(err)
@@ -163,6 +172,7 @@ func testGitChanges(hash *plumbing.Hash) []*CommitInfo {
 			ci := &CommitInfo{
 				Hash:         c.Hash.String(),
 				ChangedFiles: files,
+				timestamp:    c.Author.When,
 			}
 
 			commits = append(commits, ci)
@@ -182,7 +192,279 @@ func handleError(err error) {
 	}
 }
 
+func composeLookup(fsys fs.FS) (*compose.YamlCompose, error) {
+	f, err := fs.ReadFile(fsys, "plasma-compose.yaml")
+	if err != nil {
+		return &compose.YamlCompose{}, errors.New("plasma-compose.yaml doesn't exist")
+	}
+
+	cfg, err := parseComposeYaml(f)
+	if err != nil {
+		return &compose.YamlCompose{}, errors.New("incorrect mapping for plasma-compose.yaml, ensure structure is correct")
+	}
+
+	return cfg, nil
+}
+
+func parseComposeYaml(input []byte) (*compose.YamlCompose, error) {
+	cfg := compose.YamlCompose{}
+	err := yaml.Unmarshal(input, &cfg)
+	return &cfg, err
+}
+
+func (s *SyncAction) getResourcesToPropagate(composeInventory *Inventory, modifiedFiles []string, hash *plumbing.Hash) (*OrderedResourceMap, error) {
+	allUpdatedResources := composeInventory.GetChangedResources(modifiedFiles)
+	cli.Println("-----All modified resources-----")
+	for _, key := range allUpdatedResources.OrderedKeys() {
+		r, ok := allUpdatedResources.Get(key)
+		if !ok {
+			continue
+		}
+		cli.Println(r.GetName())
+	}
+
+	commits := testGitChanges(hash)
+	var commitsModifiedFiles []string
+	for i := len(commits) - 1; i >= 0; i-- {
+		commit := commits[i]
+		commitsModifiedFiles = append(commit.ChangedFiles)
+	}
+
+	updatedResources := NewOrderedResourceMap()
+
+	cli.Println("-----Platform modified resources-----")
+	// @todo filter later by compose results (merge strategies)
+	platformUpdatedResources := composeInventory.GetChangedResources(commitsModifiedFiles)
+	for _, key := range platformUpdatedResources.OrderedKeys() {
+		r, ok := platformUpdatedResources.Get(key)
+		if !ok {
+			continue
+		}
+
+		if _, okBld := allUpdatedResources.Get(key); okBld {
+			allUpdatedResources.Unset(key)
+		}
+
+		// @todo to merge properly in the end instead of creating many OrderedResourceMap?
+		updatedResources.Set(key, r)
+		cli.Println(r.GetName())
+	}
+
+	// @todo compose update?
+	//   prepare compose result file with selected package versions, resolved conflicts between files, dir
+	//   so we can determine from which place resources came (platform code or package code)
+
+	// For now parse compose yaml, collect packages and their versions.
+	// It will allow us to prepare inventories for each entry.
+
+	plasmaCompose, err := composeLookup(os.DirFS("."))
+	if err != nil {
+		panic("error getting plasma compose")
+	}
+
+	// Get list of packages from plasma-compose with their versions.
+	packagePathMap := make(map[string]string)
+	for _, dep := range plasmaCompose.Dependencies {
+		pkg := dep.ToPackage(dep.Name)
+		tag := pkg.GetTag()
+		branch := pkg.GetRef()
+		var version string
+		if tag != "" {
+			version = tag
+		} else if branch != "" {
+			version = branch
+		} else {
+			panic("can't find package version")
+		}
+
+		packagePathMap[dep.Name] = filepath.Join(s.packagesDir, pkg.GetName(), version)
+	}
+
+	// Iterate each package, generate inventory, check if there was change between artifact and build.
+	cli.Println("-----Packages modified resources-----")
+	for name, packagePath := range packagePathMap {
+		cli.Println("---%s - %s---", name, packagePath)
+		packageResources, _ := s.getResourcesFrom(packagePath)
+
+		for resourceName := range packageResources {
+			// if resource not in global updated list -> skip it
+			// if updated:
+			// 1) check if resource exists in composed repo, if not - skip
+			// 2) check if version is different
+			//   a) if base version is the same, copy artifact version to build
+			//   b) if base version is different, put resource to propagation
+			if _, okBld := allUpdatedResources.Get(resourceName); !okBld {
+				continue
+			}
+
+			buildResource, _ := allUpdatedResources.Get(resourceName)
+			if !buildResource.isValidResource() {
+				//  @TODO to recheck Deleted resources skipped.
+				cli.Println("- Deleted resource, to skip %s", buildResource.GetName())
+				allUpdatedResources.Unset(buildResource.GetName())
+				continue
+			}
+
+			artifactResource := newResource(buildResource.GetName(), s.comparisonDir)
+			if !artifactResource.isValidResource() {
+				// @TODO to recheck New resource, propagate it
+				cli.Println("- New resource, to propagate %s", buildResource.GetName())
+				updatedResources.Set(buildResource.GetName(), buildResource)
+				allUpdatedResources.Unset(buildResource.GetName())
+				continue
+			}
+
+			buildVersion, err := buildResource.GetBaseVersion()
+			if err != nil {
+				panic(err)
+			}
+
+			artifactVersion, err := artifactResource.GetBaseVersion()
+			if err != nil {
+				panic(err)
+			}
+
+			if buildVersion != artifactVersion {
+				cli.Println("- Base versions are different, to propagate %s", buildResource.GetName())
+				updatedResources.Set(buildResource.GetName(), buildResource)
+				allUpdatedResources.Unset(buildResource.GetName())
+			}
+		}
+
+		cli.Println("")
+	}
+
+	cli.Println("-----Artifact modified resources-----")
+	for _, key := range allUpdatedResources.OrderedKeys() {
+		r, ok := allUpdatedResources.Get(key)
+		if !ok {
+			continue
+		}
+
+		cli.Println(r.GetName())
+		// @todo temporary
+		// set version from artifact to build dir
+
+		artifactResource := newResource(r.GetName(), s.comparisonDir)
+		if artifactResource.isValidResource() {
+			artifactVersion, err := artifactResource.GetVersion()
+			if err != nil {
+				return nil, err
+			}
+			cli.Println("- Artifact version of %s is %s", artifactResource.GetName(), artifactVersion)
+			if s.dryRun {
+				continue
+			}
+
+			cli.Println("- Copy version %s", artifactVersion)
+			err = r.UpdateVersion(artifactVersion)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return updatedResources, nil
+}
+
+func (s *SyncAction) getVaultPass(vaultpass string) (keyring.KeyValueItem, error) {
+	keyValueItem, errGet := s.keyring.GetForKey(vaultpassKey)
+	if errGet != nil {
+		if errors.Is(errGet, keyring.ErrEmptyPass) {
+			return keyValueItem, errGet
+		} else if !errors.Is(errGet, keyring.ErrNotFound) {
+			log.Debug("%s", errGet)
+			return keyValueItem, errMalformedKeyring
+		}
+
+		keyValueItem.Key = vaultpassKey
+		keyValueItem.Value = vaultpass
+
+		if keyValueItem.Value == "" {
+			cli.Println("- Ansible vault password")
+			err := keyring.RequestKeyValueFromTty(&keyValueItem)
+			if err != nil {
+				return keyValueItem, err
+			}
+		}
+
+		err := s.keyring.AddItem(keyValueItem)
+		if err != nil {
+			return keyValueItem, err
+		}
+		s.saveKeyring = true
+	}
+
+	return keyValueItem, nil
+}
+
+func (s *SyncAction) getResourcesFrom(dir string) (map[string]bool, error) {
+	inv, err := NewInventory("empty", dir, "")
+	if err != nil {
+		return nil, err
+	}
+
+	resources := inv.GetResourcesMap()
+	//for k := range resources {
+	//	cli.Println("%s", k)
+	//}
+
+	return resources, nil
+}
+
 func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string, hash *plumbing.Hash) error {
+	keyValueItem, errGet := s.getVaultPass(vaultpass)
+	if errGet != nil {
+		return errGet
+	}
+
+	inv, err := NewInventory(keyValueItem.Value, s.sourceDir, s.comparisonDir)
+	if err != nil {
+		return err
+	}
+
+	// @todo
+	//    determine which resources are coming from artifact and copy their versions from artifact
+	//    propagate resources that were changes in commits.
+	//    ideally commit by commit.
+	updatedResources, err := s.getResourcesToPropagate(inv, modifiedFiles, hash)
+	if err != nil {
+		return err
+	}
+	//panic("123")
+
+	if updatedResources.Len() == 0 {
+		cli.Println("WARNING: No resources were found for propagation")
+		return nil
+	}
+
+	if updatedResources.Len() > 0 {
+		updatedResources.OrderBy(inv.GetResourcesOrder())
+		s.printResources("Resources whose version need to be propagated:", updatedResources)
+	}
+
+	log.Info("Collecting resources dependencies:")
+	toPropagate := NewOrderedResourceMap()
+	resourceVersionMap := make(map[string]string)
+
+	for _, key := range updatedResources.OrderedKeys() {
+		r, ok := updatedResources.Get(key)
+		if !ok {
+			continue
+		}
+
+		errCollectDeps := s.collectResourceDependencies(r, toPropagate, inv.GetRequiredMap(), resourceVersionMap)
+		if errCollectDeps != nil {
+			return errCollectDeps
+		}
+	}
+
+	err = s.updateResources(toPropagate, resourceVersionMap)
+
+	return err
+}
+
+func (s *SyncAction) propagateOld(modifiedFiles []string, vaultpass string, hash *plumbing.Hash) error {
 	keyValueItem, errGet := s.keyring.GetForKey(vaultpassKey)
 	if errGet != nil {
 		if errors.Is(errGet, keyring.ErrEmptyPass) {
@@ -274,6 +556,7 @@ func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string, hash *p
 				continue
 			}
 			err = r.UpdateVersion(artifactVersion)
+			cli.Println("Copy version %s", artifactVersion)
 			if err != nil {
 				return err
 			}
