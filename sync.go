@@ -3,6 +3,8 @@ package plasmactlbump
 import (
 	"errors"
 	"fmt"
+	vault "github.com/sosedoff/ansible-vault-go"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -41,6 +43,7 @@ type SyncAction struct {
 	dryRun        bool
 	keyring       keyring.Keyring
 	saveKeyring   bool
+	vaultPass     string
 }
 
 // Execute executes the sync action by following these steps:
@@ -367,6 +370,128 @@ func (s *SyncAction) getResourcesToPropagate(composeInventory *Inventory, modifi
 	return updatedResources, nil
 }
 
+func (s *SyncAction) getVarResourcesToPropagate(composeInventory *Inventory, modifiedFiles []string) (*OrderedResourceMap, map[string]map[string]bool, map[string]*Variable, error) {
+	variables, err := composeInventory.GetChangedVariables(modifiedFiles)
+	if err != nil {
+		panic(err)
+	}
+
+	// find all new versions of updated resources to propagate (commit)
+	cli.Println("\nVariables list:")
+	for _, variable := range variables {
+		cli.Println("%s - %s - %s", variable.name, variable.platform, variable.filepath)
+
+		err := s.FindVariableVersion(variable)
+		if err != nil {
+			panic(err)
+		}
+
+		cli.Println("version of %s from %s is %s, %s", variable.name, variable.filepath, variable.version.Version, variable.version.Date)
+	}
+
+	updatedVarResources, resourceVarsMap, err := composeInventory.GetChangedVarsResources(modifiedFiles)
+	if err != nil {
+		return updatedVarResources, resourceVarsMap, variables, err
+	}
+
+	for _, key := range updatedVarResources.OrderedKeys() {
+		r, ok := updatedVarResources.Get(key)
+		if !ok {
+			continue
+		}
+
+		cli.Println("%s", r.GetName())
+	}
+
+	for outerKey, innerMap := range resourceVarsMap {
+		fmt.Println("Resource: ", outerKey)
+		for innerKey := range innerMap {
+			fmt.Println("    Variable: ", innerKey)
+		}
+	}
+
+	return updatedVarResources, resourceVarsMap, variables, err
+}
+
+func (s *SyncAction) FindVariableVersion(variable *Variable) error {
+	repo, err := getRepo()
+	if err != nil {
+		return err
+	}
+
+	ref, _ := repo.git.Head()
+	// start from the latest commit and iterate to the past
+	cIter, _ := repo.git.Log(&git.LogOptions{From: ref.Hash()})
+
+	//currentHash := variable.hash
+	var currentHash string
+	var currentHashTime time.Time
+	err = cIter.ForEach(func(c *object.Commit) error {
+		cli.Println("commit hash11 - %s", currentHash)
+		file, err := c.File(variable.filepath)
+		if errors.Is(err, object.ErrFileNotFound) {
+			cli.Println("File didn't exist before, take current hash as version")
+			return storer.ErrStop
+		}
+
+		reader, _ := file.Blob.Reader()
+		contents, _ := io.ReadAll(reader)
+		varFile, err := s.LoadVariablesFileFromBytes(contents, variable.isVault)
+		if err != nil {
+			panic(err)
+		}
+
+		prevVar, exists := varFile[variable.name]
+		if !exists {
+			cli.Println("Variable didn't exist before, take current hash as version")
+			return storer.ErrStop
+		}
+
+		prevVarHash := HashString(fmt.Sprint(prevVar))
+		if variable.hash != prevVarHash {
+			cli.Println("Variable exists, hashes don't match, stop iterating")
+			return storer.ErrStop
+
+		}
+
+		currentHash = c.Hash.String()
+		currentHashTime = c.Author.When
+		return nil
+	})
+
+	variable.version = &VarVersion{Version: currentHash, Date: currentHashTime}
+
+	return err
+}
+
+// @todo move to inventory
+func (s *SyncAction) LoadVariablesFileFromBytes(input []byte, isVault bool) (map[string]interface{}, error) {
+	var data map[string]interface{}
+	var rawData []byte
+	var err error
+
+	if isVault {
+		sourceVault, errDecrypt := vault.Decrypt(string(input), s.vaultPass)
+		if errDecrypt != nil {
+			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
+				return data, fmt.Errorf("error decrypting vaults, password is blank")
+			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
+				return data, fmt.Errorf("error decrypting vault, invalid secret format")
+			} else if errDecrypt.Error() == "invalid password" {
+				return data, fmt.Errorf("invalid password for vault")
+			}
+
+			return data, errDecrypt
+		}
+		rawData = []byte(sourceVault)
+	} else {
+		rawData = input
+	}
+
+	err = yaml.Unmarshal(rawData, &data)
+	return data, err
+}
+
 func (s *SyncAction) getVaultPass(vaultpass string) (keyring.KeyValueItem, error) {
 	keyValueItem, errGet := s.keyring.GetForKey(vaultpassKey)
 	if errGet != nil {
@@ -418,7 +543,9 @@ func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string, hash *p
 		return errGet
 	}
 
-	inv, err := NewInventory(keyValueItem.Value, s.sourceDir, s.comparisonDir)
+	s.vaultPass = keyValueItem.Value
+
+	inv, err := NewInventory(s.vaultPass, s.sourceDir, s.comparisonDir)
 	if err != nil {
 		return err
 	}
@@ -431,16 +558,26 @@ func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string, hash *p
 	if err != nil {
 		return err
 	}
-	//panic("123")
 
-	if updatedResources.Len() == 0 {
+	updatedVarResources, resourceVarsMap, variables, err := s.getVarResourcesToPropagate(inv, modifiedFiles)
+	if err != nil {
+		return err
+	}
+
+	if updatedResources.Len() == 0 && updatedVarResources.Len() == 0 {
 		cli.Println("WARNING: No resources were found for propagation")
 		return nil
 	}
+	//panic("123")
 
 	if updatedResources.Len() > 0 {
 		updatedResources.OrderBy(inv.GetResourcesOrder())
 		s.printResources("Resources whose version need to be propagated:", updatedResources)
+	}
+
+	if updatedVarResources.Len() > 0 {
+		updatedVarResources.OrderBy(inv.GetResourcesOrder())
+		s.printResources("Resources whose version need to be updated and propagated:", updatedVarResources)
 	}
 
 	log.Info("Collecting resources dependencies:")
@@ -459,6 +596,26 @@ func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string, hash *p
 		}
 	}
 
+	for _, key := range updatedVarResources.OrderedKeys() {
+		r, ok := updatedVarResources.Get(key)
+		if !ok {
+			continue
+		}
+
+		// @todo, recheck and improve
+		// Get version from variable, compare versions by date, select latest one
+
+		vars := resourceVarsMap[r.GetName()]
+		_, version := s.getLatestVersionBetweenVars(vars, variables)
+		version = version[:13]
+		cli.Println("Version for resource %s is %s", r.GetName(), version)
+		cli.Println("Selected from list of %v", vars)
+		s.collectDependenciesRecursively(r, version, toPropagate, inv.GetRequiredMap(), resourceVersionMap)
+	}
+
+	cli.Println("%v", resourceVersionMap)
+
+	s.printVariablesInfo(resourceVarsMap)
 	err = s.updateResources(toPropagate, resourceVersionMap)
 
 	return err
@@ -716,6 +873,22 @@ func (s *SyncAction) printVariablesInfo(rvm map[string]map[string]bool) {
 	}
 }
 
+func (s *SyncAction) getLatestVersionBetweenVars(vars map[string]bool, allVars map[string]*Variable) (latestVar string, latestVersion string) {
+	latestDate := time.Time{}
+
+	for v := range vars {
+		if variable, ok := allVars[v]; ok {
+			if variable.version.Date.After(latestDate) {
+				latestDate = variable.version.Date
+				latestVar = v
+				latestVersion = variable.version.Version
+			}
+		}
+	}
+
+	return latestVar, latestVersion
+}
+
 func (s *SyncAction) generateVariablesHash(vars map[string]bool) string {
 	keys := make([]string, 0, len(vars))
 	for k := range vars {
@@ -723,7 +896,7 @@ func (s *SyncAction) generateVariablesHash(vars map[string]bool) string {
 	}
 
 	key := strings.Join(keys, "__")
-	hash := hashString(key)
+	hash := HashString(key)
 	base16Hash := strconv.FormatUint(hash, 16)
 	return "." + base16Hash[:13]
 }

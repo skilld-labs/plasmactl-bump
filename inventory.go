@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/launchrctl/launchr/pkg/log"
 	vault "github.com/sosedoff/ansible-vault-go"
@@ -40,7 +41,13 @@ type Variable struct {
 	platform string
 	name     string
 	hash     uint64
+	version  *VarVersion
 	isVault  bool
+}
+
+type VarVersion struct {
+	Version string
+	Date    time.Time
 }
 
 type resourceDependencies struct {
@@ -244,7 +251,7 @@ func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedResource
 // It returns the resources as an OrderedResourceMap and the variable maps as a map[string]map[string]bool.
 // If there are no changed variables, it returns nil for both the resources and variable maps.
 func (i *Inventory) GetChangedVarsResources(modifiedFiles []string) (*OrderedResourceMap, map[string]map[string]bool, error) {
-	variables, err := i.getChangedVariables(modifiedFiles)
+	variables, err := i.GetChangedVariables(modifiedFiles)
 	if len(variables) == 0 || err != nil {
 		return NewOrderedResourceMap(), make(map[string]map[string]bool), err
 	}
@@ -253,7 +260,7 @@ func (i *Inventory) GetChangedVarsResources(modifiedFiles []string) (*OrderedRes
 	return resources, resourceVariablesMap, err
 }
 
-func (i *Inventory) getChangedVariables(modifiedFiles []string) (map[string]*Variable, error) {
+func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Variable, error) {
 	changedVariables := make(map[string]*Variable)
 	for _, path := range modifiedFiles {
 		platform, kind, role, errPath := processResourcePath(path)
@@ -288,8 +295,8 @@ func (i *Inventory) getChangedVariables(modifiedFiles []string) (map[string]*Var
 				sourceValue := fmt.Sprint(sv)
 				artifactValue := fmt.Sprint(av)
 
-				sourceHash := hashString(sourceValue)
-				artifactHash := hashString(artifactValue)
+				sourceHash := HashString(sourceValue)
+				artifactHash := HashString(artifactValue)
 
 				if sourceHash != artifactHash {
 					changedVar := &Variable{
@@ -627,7 +634,7 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 				variables = append(variables, &Variable{
 					filepath: path,
 					name:     k,
-					hash:     hashString(sourceValue),
+					hash:     HashString(sourceValue),
 					isVault:  isVaultFile(path),
 					platform: platform,
 				})
