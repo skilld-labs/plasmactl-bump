@@ -105,6 +105,6 @@ func hashFile(path string) uint64 {
 	return hash.Sum64()
 }
 
-func hashString(item string) uint64 {
+func HashString(item string) uint64 {
 	return xxhash.Sum64String(item)
 }
