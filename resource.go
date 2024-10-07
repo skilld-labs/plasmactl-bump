@@ -52,6 +52,13 @@ func (r *Resource) buildMetaPath() string {
 	return filepath.Join(r.pathPrefix, meta)
 }
 
+func (r *Resource) buildRelativePath() string {
+	parts := strings.Split(r.GetName(), "__")
+
+	meta := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
+	return meta
+}
+
 // GetVersion retrieves the version of the resource from the plasma.yaml
 func (r *Resource) GetVersion() (string, error) {
 	metaFile := r.buildMetaPath()
@@ -88,6 +95,23 @@ func (r *Resource) GetVersion() (string, error) {
 
 	log.Debug("Meta file (%s) is missing", metaFile)
 	return "", errFailedMeta
+}
+
+func GetMetaVersion(meta map[string]interface{}) string {
+	if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
+		version := plasma["version"]
+		if version == nil {
+			version = ""
+		}
+		val, okConversion := version.(string)
+		if okConversion {
+			return val
+		}
+
+		return fmt.Sprint(version)
+	}
+
+	return ""
 }
 
 // GetBaseVersion.....

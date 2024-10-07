@@ -38,6 +38,20 @@ func getRepo() (*BumperRepo, error) {
 	}, nil
 }
 
+func getRepoByPath(path string) (*BumperRepo, error) {
+	r, err := git.PlainOpen(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BumperRepo{
+		git:           r,
+		name:          "Bumper",
+		mail:          "no-reply@skilld.cloud",
+		commitMessage: bumpSearchText,
+	}, nil
+}
+
 // IsOwnCommit checks if the latest commit in the Git repository was made by the bumper.
 func (r *BumperRepo) IsOwnCommit() bool {
 	ref, err := r.git.Head()
