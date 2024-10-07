@@ -480,7 +480,7 @@ func (s *SyncAction) getResourcesToPropagate(composeInventory *Inventory, modifi
 }
 
 func (s *SyncAction) getVarResourcesToPropagate(composeInventory *Inventory, modifiedFiles []string) (*OrderedResourceMap, map[string]map[string]bool, map[string]*Variable, error) {
-	variables, err := composeInventory.GetChangedVariables(modifiedFiles)
+	variables, _, err := composeInventory.GetChangedVariables(modifiedFiles)
 	if err != nil {
 		panic(err)
 	}
@@ -490,7 +490,7 @@ func (s *SyncAction) getVarResourcesToPropagate(composeInventory *Inventory, mod
 	for _, variable := range variables {
 		cli.Println("%s - %s - %s", variable.name, variable.platform, variable.filepath)
 
-		_, err := s.FindVariableVersion(variable)
+		_, err := s.FindUpdatedVariableVersion(variable)
 		if err != nil {
 			panic(err)
 		}
@@ -576,14 +576,13 @@ func (s *SyncAction) FindResourceVersion(resource *Resource, path string) (*Reso
 	return rhi, err
 }
 
-func (s *SyncAction) FindVariableVersion(variable *Variable) (*VariableHistoryItem, error) {
+func (s *SyncAction) FindUpdatedVariableVersion(variable *Variable) (*VariableHistoryItem, error) {
 	repo, err := getRepo()
 	if err != nil {
 		return nil, err
 	}
 
 	ref, _ := repo.git.Head()
-	// start from the latest commit and iterate to the past
 	cIter, _ := repo.git.Log(&git.LogOptions{From: ref.Hash()})
 
 	//currentHash := variable.hash
@@ -621,6 +620,62 @@ func (s *SyncAction) FindVariableVersion(variable *Variable) (*VariableHistoryIt
 		currentHashTime = c.Author.When
 		return nil
 	})
+
+	variable.version = &VarVersion{Version: currentHash, Date: currentHashTime}
+
+	vhi := &VariableHistoryItem{
+		version:   currentHash,
+		commit:    currentHash,
+		date:      currentHashTime,
+		variables: make(map[string]*Variable),
+	}
+	vhi.addVariable(variable)
+
+	return vhi, err
+}
+
+func (s *SyncAction) FindDeletedVariableVersion(variable *Variable) (*VariableHistoryItem, error) {
+	repo, err := getRepo()
+	if err != nil {
+		return nil, err
+	}
+
+	ref, _ := repo.git.Head()
+	cIter, _ := repo.git.Log(&git.LogOptions{From: ref.Hash()})
+
+	var currentHash string
+	var currentHashTime time.Time
+	err = cIter.ForEach(func(c *object.Commit) error {
+		//cli.Println("commit hash - %s", currentHash)
+		file, err := c.File(variable.filepath)
+		if errors.Is(err, object.ErrFileNotFound) {
+			cli.Println("File doesn't exists, continue searching for file with variable")
+			currentHash = c.Hash.String()
+			currentHashTime = c.Author.When
+			return nil
+		}
+
+		reader, _ := file.Blob.Reader()
+		contents, _ := io.ReadAll(reader)
+		varFile, err := s.LoadVariablesFileFromBytes(contents, variable.isVault)
+		if err != nil {
+			panic(err)
+		}
+
+		_, exists := varFile[variable.name]
+		if !exists {
+			cli.Println("Variable doesn't exist %s, continue search", currentHash)
+			currentHash = c.Hash.String()
+			currentHashTime = c.Author.When
+			return nil
+		}
+
+		cli.Println("Variable exists, stop search")
+
+		return storer.ErrStop
+	})
+
+	//@todo if hash or date is empty, panic or return error
 
 	variable.version = &VarVersion{Version: currentHash, Date: currentHashTime}
 
@@ -929,18 +984,29 @@ func (s *SyncAction) buildPropagationMap(buildInv *Inventory, modifiedFiles []st
 		}
 	}
 
-	cli.Println("-----Gathering Variables-----")
-	variables, err := buildInv.GetChangedVariables(modifiedFiles)
+	cli.Println("-----Gathering Changed Variables-----")
+	updatedVariables, deletedVariables, err := buildInv.GetChangedVariables(modifiedFiles)
 	if err != nil {
 		panic(err)
 	}
 
 	// find all new versions of updated resources to propagate (commit)
-	cli.Println("Variables list:")
-	for _, variable := range variables {
+	cli.Println("Updated or New Variables list:")
+	for _, variable := range updatedVariables {
 		cli.Println("%s - %s", variable.name, variable.filepath)
 
-		vhi, err := s.FindVariableVersion(variable)
+		vhi, err := s.FindUpdatedVariableVersion(variable)
+		handleError(err)
+		timeline = AddToTimeline(timeline, vhi)
+
+		cli.Println("version of %s from %s is %s, %s", variable.name, variable.filepath, variable.version.Version, variable.version.Date)
+	}
+
+	cli.Println("-----Gathering Deleted Variables-----")
+	for _, variable := range deletedVariables {
+		cli.Println("%s - %s", variable.name, variable.filepath)
+
+		vhi, err := s.FindDeletedVariableVersion(variable)
 		handleError(err)
 		timeline = AddToTimeline(timeline, vhi)
 

@@ -251,7 +251,7 @@ func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedResource
 // It returns the resources as an OrderedResourceMap and the variable maps as a map[string]map[string]bool.
 // If there are no changed variables, it returns nil for both the resources and variable maps.
 func (i *Inventory) GetChangedVarsResources(modifiedFiles []string) (*OrderedResourceMap, map[string]map[string]bool, error) {
-	variables, err := i.GetChangedVariables(modifiedFiles)
+	variables, _, err := i.GetChangedVariables(modifiedFiles)
 	if len(variables) == 0 || err != nil {
 		return NewOrderedResourceMap(), make(map[string]map[string]bool), err
 	}
@@ -260,8 +260,9 @@ func (i *Inventory) GetChangedVarsResources(modifiedFiles []string) (*OrderedRes
 	return resources, resourceVariablesMap, err
 }
 
-func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Variable, error) {
+func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Variable, map[string]*Variable, error) {
 	changedVariables := make(map[string]*Variable)
+	deletedVariables := make(map[string]*Variable)
 	for _, path := range modifiedFiles {
 		platform, kind, role, errPath := processResourcePath(path)
 		if errPath != nil {
@@ -280,41 +281,103 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Var
 		artifactPath := filepath.Join(i.comparisonDir, path)
 		isVault := isVaultFile(path)
 
-		sourceData, err := i.loadVariablesFile(sourcePath, i.vaultPassword, isVault)
-		if err != nil {
-			return changedVariables, err
-		}
+		_, err1 := os.Stat(sourcePath)
+		sourceFileExists := !os.IsNotExist(err1)
+		_, err2 := os.Stat(artifactPath)
+		artifactFileExists := !os.IsNotExist(err2)
 
-		artifactData, err := i.loadVariablesFile(artifactPath, i.vaultPassword, isVault)
-		if err != nil {
-			return changedVariables, err
-		}
+		if sourceFileExists && artifactFileExists {
+			sourceData, err := i.loadVariablesFile(sourcePath, i.vaultPassword, isVault)
+			if err != nil {
+				return changedVariables, deletedVariables, err
+			}
 
-		for k, sv := range sourceData {
-			if av, ok := artifactData[k]; ok {
-				sourceValue := fmt.Sprint(sv)
-				artifactValue := fmt.Sprint(av)
+			artifactData, err := i.loadVariablesFile(artifactPath, i.vaultPassword, isVault)
+			if err != nil {
+				return changedVariables, deletedVariables, err
+			}
 
-				sourceHash := HashString(sourceValue)
-				artifactHash := HashString(artifactValue)
+			// Check for updated vars in existing files
+			for k, sv := range sourceData {
+				if av, ok := artifactData[k]; ok {
+					sourceValue := fmt.Sprint(sv)
+					artifactValue := fmt.Sprint(av)
 
-				if sourceHash != artifactHash {
-					changedVar := &Variable{
+					sourceHash := HashString(sourceValue)
+					artifactHash := HashString(artifactValue)
+
+					if sourceHash != artifactHash {
+						changedVar := &Variable{
+							filepath: path,
+							name:     k,
+							hash:     sourceHash,
+							platform: platform,
+							isVault:  isVault,
+						}
+
+						changedVariables[changedVar.name] = changedVar
+					}
+				}
+			}
+
+			// Check for deleted vars in existing files
+			for k, av := range artifactData {
+				if _, ok := sourceData[k]; !ok {
+					artifactValue := fmt.Sprint(av)
+					deletedVar := &Variable{
 						filepath: path,
 						name:     k,
-						hash:     sourceHash,
+						hash:     HashString(artifactValue),
 						platform: platform,
 						isVault:  isVault,
 					}
 
-					changedVariables[changedVar.name] = changedVar
+					deletedVariables[deletedVar.name] = deletedVar
 				}
 			}
-		}
 
+		} else if sourceFileExists && !artifactFileExists {
+			// New vars file, add all variable to propagate.
+			sourceData, err := i.loadVariablesFile(sourcePath, i.vaultPassword, isVault)
+			if err != nil {
+				return changedVariables, deletedVariables, err
+			}
+			for k, sv := range sourceData {
+				sourceValue := fmt.Sprint(sv)
+				newVar := &Variable{
+					filepath: path,
+					name:     k,
+					hash:     HashString(sourceValue),
+					platform: platform,
+					isVault:  isVault,
+				}
+
+				changedVariables[newVar.name] = newVar
+			}
+
+		} else if !sourceFileExists && artifactFileExists {
+			// Vars file was deleted, find all removed variables.
+			artifactData, err := i.loadVariablesFile(artifactPath, i.vaultPassword, isVault)
+			if err != nil {
+				return changedVariables, deletedVariables, err
+			}
+
+			for k, av := range artifactData {
+				artifactValue := fmt.Sprint(av)
+				deletedVar := &Variable{
+					filepath: path,
+					name:     k,
+					hash:     HashString(artifactValue),
+					platform: platform,
+					isVault:  isVault,
+				}
+
+				deletedVariables[deletedVar.name] = deletedVar
+			}
+		}
 	}
 
-	return changedVariables, nil
+	return changedVariables, deletedVariables, nil
 }
 
 func (i *Inventory) loadVariablesFile(path, vaultPassword string, isVault bool) (map[string]interface{}, error) {
