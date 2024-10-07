@@ -102,6 +102,8 @@ func (s *SyncAction) prepareArtifact(username, password, override string) error 
 		s.saveKeyring = true
 	}
 
+	override = truncateOverride(override)
+
 	storage := ArtifactStorage{
 		repo:     repo,
 		username: ci.Username,
@@ -376,4 +378,14 @@ func (s *SyncAction) composeVersion(oldVersion string, newVersion string) string
 	}
 
 	return version
+}
+
+func truncateOverride(override string) string {
+	truncateLength := 7
+
+	if len(override) > truncateLength {
+		log.Info("Truncated override value to %d chars: %s", truncateLength, override)
+		return override[:truncateLength]
+	}
+	return override
 }
