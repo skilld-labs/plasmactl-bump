@@ -256,7 +256,7 @@ func (i *Inventory) GetChangedVarsResources(modifiedFiles []string) (*OrderedRes
 		return NewOrderedResourceMap(), make(map[string]map[string]bool), err
 	}
 
-	resources, resourceVariablesMap, err := i.searchVariablesResources(variables)
+	resources, resourceVariablesMap, err := i.SearchVariablesResources(variables)
 	return resources, resourceVariablesMap, err
 }
 
@@ -348,7 +348,7 @@ func (i *Inventory) loadVariablesFile(path, vaultPassword string, isVault bool) 
 	return data, err
 }
 
-func (i *Inventory) searchVariablesResources(variables map[string]*Variable) (*OrderedResourceMap, map[string]map[string]bool, error) {
+func (i *Inventory) SearchVariablesResources(variables map[string]*Variable) (*OrderedResourceMap, map[string]map[string]bool, error) {
 	resources := NewOrderedResourceMap()
 	resourceVariablesMap := make(map[string]map[string]bool)
 
