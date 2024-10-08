@@ -771,6 +771,107 @@ func (s *SyncAction) getResourcesFrom(dir string) (map[string]bool, error) {
 	return resources, nil
 }
 
+func (s *SyncAction) getResourcesMaps() (map[string]map[string]bool, map[string]string) {
+	resourcesMap := make(map[string]map[string]bool)
+
+	buildResources, _ := s.getResourcesFrom(s.sourceDir)
+	domainNamespace := "domain"
+
+	resourcesMap[domainNamespace], _ = s.getResourcesFrom(".")
+
+	// For now parse compose yaml, collect packages and their versions.
+	// It will allow us to prepare inventories for each entry.
+	plasmaCompose, err := composeLookup(os.DirFS("."))
+	if err != nil {
+		panic("error getting plasma compose")
+	}
+	packagePathMap := make(map[string]string)
+	var priorityOrder []string
+	for _, dep := range plasmaCompose.Dependencies {
+		pkg := dep.ToPackage(dep.Name)
+		tag := pkg.GetTag()
+		branch := pkg.GetRef()
+		var version string
+		if tag != "" {
+			version = tag
+		} else if branch != "" {
+			version = branch
+		} else {
+			panic("can't find package version")
+		}
+
+		packagePathMap[dep.Name] = filepath.Join(s.packagesDir, pkg.GetName(), version)
+		priorityOrder = append(priorityOrder, dep.Name)
+	}
+
+	priorityOrder = append(priorityOrder, domainNamespace)
+
+	for name, packagePath := range packagePathMap {
+		resources, _ := s.getResourcesFrom(packagePath)
+		resourcesMap[name] = resources
+	}
+
+	for resourceName := range buildResources {
+		conflicts := make(map[string]string)
+		for name, resources := range resourcesMap {
+			if _, ok := resources[resourceName]; ok {
+				conflicts[name] = ""
+			}
+		}
+
+		if len(conflicts) < 2 {
+			continue
+		}
+
+		buildResourceEntity := newResource(resourceName, s.sourceDir)
+		buildVersion, _ := buildResourceEntity.GetVersion()
+
+		var sameVersionNamespaces []string
+		for conflictingNamespace, _ := range conflicts {
+			var conflictEntity *Resource
+			if conflictingNamespace == domainNamespace {
+				conflictEntity = newResource(resourceName, s.sourceDir)
+			} else {
+				conflictEntity = newResource(resourceName, packagePathMap[conflictingNamespace])
+			}
+
+			version, _ := conflictEntity.GetBaseVersion()
+
+			if version != buildVersion {
+				cli.Println("removing from %s, %s, %s", conflictingNamespace, resourceName, version)
+				delete(resourcesMap[conflictingNamespace], resourceName)
+			} else {
+				sameVersionNamespaces = append(sameVersionNamespaces, conflictingNamespace)
+			}
+		}
+
+		if len(sameVersionNamespaces) > 1 {
+			// Should be super rare situation
+			cli.Println("conflicts for %s", resourceName)
+			cli.Println("%v", conflicts)
+			cli.Println("same version namespaces: %v", sameVersionNamespaces)
+
+			var highest string
+			for i := len(priorityOrder) - 1; i >= 0; i-- {
+				if _, ok := resourcesMap[priorityOrder[i]]; ok {
+					highest = priorityOrder[i]
+					break
+				}
+			}
+
+			for i := len(priorityOrder) - 1; i >= 0; i-- {
+				if priorityOrder[i] != highest {
+					if _, ok := resourcesMap[priorityOrder[i]]; ok {
+						delete(resourcesMap[priorityOrder[i]], resourceName)
+					}
+				}
+			}
+		}
+	}
+
+	return resourcesMap, packagePathMap
+}
+
 func (s *SyncAction) buildPropagationMap(buildInv *Inventory, modifiedFiles []string) (*OrderedResourceMap, map[string]string) {
 	// @TODO
 	//   Find list of changed resources
@@ -786,9 +887,11 @@ func (s *SyncAction) buildPropagationMap(buildInv *Inventory, modifiedFiles []st
 	//   prepare compose result file with selected package versions, resolved conflicts between files, dir
 	//   so we can determine from which place resources came (platform code or package code)
 
-	// @todo handle case when variables file was deleted
+	// @todo temporary check from which place resource came by its' version, later update compose or else.
 
 	var timeline []VersionHistoryItem
+
+	resourcesMap, packagePathMap := s.getResourcesMaps()
 
 	allUpdatedResources := buildInv.GetChangedResources(modifiedFiles)
 	cli.Println("-----All different resources between build and artifact-----")
@@ -800,10 +903,8 @@ func (s *SyncAction) buildPropagationMap(buildInv *Inventory, modifiedFiles []st
 		cli.Println("- %s", r.GetName())
 	}
 
-	//updatedResources := NewOrderedResourceMap()
-
 	cli.Println("")
-	domainResources, _ := s.getResourcesFrom(".")
+	domainResources := resourcesMap["domain"]
 	cli.Println("-----Domain modified resources-----")
 	for resourceName := range domainResources {
 		// if resource not in global updated list -> skip it
@@ -860,37 +961,12 @@ func (s *SyncAction) buildPropagationMap(buildInv *Inventory, modifiedFiles []st
 		}
 	}
 
-	// For now parse compose yaml, collect packages and their versions.
-	// It will allow us to prepare inventories for each entry.
-	plasmaCompose, err := composeLookup(os.DirFS("."))
-	if err != nil {
-		panic("error getting plasma compose")
-	}
-
-	// Get list of packages from plasma-compose with their versions.
-	packagePathMap := make(map[string]string)
-	for _, dep := range plasmaCompose.Dependencies {
-		pkg := dep.ToPackage(dep.Name)
-		tag := pkg.GetTag()
-		branch := pkg.GetRef()
-		var version string
-		if tag != "" {
-			version = tag
-		} else if branch != "" {
-			version = branch
-		} else {
-			panic("can't find package version")
-		}
-
-		packagePathMap[dep.Name] = filepath.Join(s.packagesDir, pkg.GetName(), version)
-	}
-
 	// Iterate each package, generate inventory, check if there was change between artifact and build.
 	cli.Println("")
 	cli.Println("-----Packages modified resources-----")
 	for name, packagePath := range packagePathMap {
 		cli.Println("---%s - %s---", name, packagePath)
-		packageResources, _ := s.getResourcesFrom(packagePath)
+		packageResources := resourcesMap[name]
 
 		for resourceName := range packageResources {
 			// if resource not in global updated list -> skip it
