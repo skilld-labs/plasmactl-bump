@@ -892,6 +892,8 @@ func (s *SyncAction) buildPropagationMap(buildInv *Inventory, modifiedFiles []st
 	// @todo temporary check from which place resource came by its' version, later update compose or else.
 
 	var timeline []VersionHistoryItem
+	resourceVersionMap := make(map[string]string)
+	toPropagate := NewOrderedResourceMap()
 
 	resourcesMap, packagePathMap := s.getResourcesMaps()
 
@@ -1105,16 +1107,21 @@ func (s *SyncAction) buildPropagationMap(buildInv *Inventory, modifiedFiles []st
 	cli.Println("")
 
 	if len(timeline) == 0 {
-		return nil, nil
+		return toPropagate, resourceVersionMap
 	}
 
 	cli.Println("------Building versions map-----")
-	resourceVersionMap := make(map[string]string)
-	toPropagate := NewOrderedResourceMap()
 	for _, item := range timeline {
 		switch i := item.(type) {
 		case *ResourceHistoryItem:
 			for _, r := range i.resources {
+				_, ok := toPropagate.Get(r.GetName())
+				if ok {
+					// Ensure new version removes previous propagation for that resource.
+					toPropagate.Unset(r.GetName())
+					delete(resourceVersionMap, r.GetName())
+				}
+
 				errCollectDeps := s.collectResourceDependenciesWithVersion(r, i.GetVersion(), toPropagate, buildInv.GetRequiredMap(), resourceVersionMap)
 				handleError(errCollectDeps)
 			}
