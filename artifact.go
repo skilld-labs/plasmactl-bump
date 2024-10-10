@@ -50,12 +50,7 @@ func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) (*plum
 	log.Info("Repository name: %s", repoName)
 	var archivePath string
 	if s.override != "" {
-		test := plumbing.NewHash(s.override)
-		_, err = s.repo.git.CommitObject(test)
-		if err != nil {
-			return nil, err
-		}
-		artifactRef = &test
+		artifactRef = nil
 
 		comparisonRef := s.override
 		log.Info("OVERRIDDEN_COMPARISON_REF has been set: %s", s.override)
