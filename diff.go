@@ -42,8 +42,15 @@ func compareDirectories(dirA, dirB string, excludeSubDirs []string) ([]string, e
 	var updated []string
 
 	for f := range filesInDirA {
+		// @todo move it
+		if strings.Contains(f, "__pycache__") {
+			continue
+		}
+
 		_, found := filesInDirB[f]
 		if !found {
+			// @todo Add new files here
+			updated = append(updated, f)
 			continue
 		}
 		fileA := filepath.Join(dirA, f)
@@ -54,7 +61,20 @@ func compareDirectories(dirA, dirB string, excludeSubDirs []string) ([]string, e
 		}
 	}
 
+	// @todo add deleted files here
+	updated = append(updated, findDiff(filesInDirB, filesInDirA)...)
+
 	return updated, nil
+}
+
+func findDiff(m1, m2 map[string]bool) []string {
+	var diff []string
+	for key := range m1 {
+		if !m2[key] {
+			diff = append(diff, key)
+		}
+	}
+	return diff
 }
 
 func getFiles(path string, excludeSubDirs []string) (map[string]bool, error) {
@@ -105,6 +125,6 @@ func hashFile(path string) uint64 {
 	return hash.Sum64()
 }
 
-func hashString(item string) uint64 {
+func HashString(item string) uint64 {
 	return xxhash.Sum64String(item)
 }

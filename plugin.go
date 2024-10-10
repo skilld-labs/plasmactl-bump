@@ -56,6 +56,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 				syncAction := SyncAction{
 					sourceDir:     ".compose/build",
 					comparisonDir: ".compose/comparison-artifact",
+					packagesDir:   ".compose/packages",
 					dryRun:        dryRun,
 					keyring:       p.k,
 				}
