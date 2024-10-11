@@ -53,7 +53,7 @@ type SyncAction struct {
 // - Calls the propagate method to propagate resources' versions.
 // - Returns any error that occurs during the execution of the sync action.
 func (s *SyncAction) Execute(username, password, override, vaultpass string) error {
-	hash, err := s.prepareArtifact(username, password, override)
+	err := s.prepareArtifact(username, password, override)
 	if err != nil {
 		return err
 	}
@@ -69,34 +69,31 @@ func (s *SyncAction) Execute(username, password, override, vaultpass string) err
 		log.Info("- %s", file)
 	}
 
-	err = s.propagate(modifiedFiles, vaultpass, hash)
+	err = s.propagate(modifiedFiles, vaultpass)
 	if err != nil {
 		return err
 	}
 
 	if s.saveKeyring {
 		err = s.keyring.Save()
-		if err != nil {
-			return err
-		}
 	}
 
-	return nil
+	return err
 }
 
-func (s *SyncAction) prepareArtifact(username, password, override string) (*plumbing.Hash, error) {
+func (s *SyncAction) prepareArtifact(username, password, override string) error {
 	repo, err := getRepo()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	ci, errGet := s.keyring.GetForURL(artifactsRepositoryDomain)
 	if errGet != nil {
 		if errors.Is(errGet, keyring.ErrEmptyPass) {
-			return nil, errGet
+			return errGet
 		} else if !errors.Is(errGet, keyring.ErrNotFound) {
 			log.Debug("%s", errGet)
-			return nil, errMalformedKeyring
+			return errMalformedKeyring
 		}
 
 		ci.URL = artifactsRepositoryDomain
@@ -107,13 +104,13 @@ func (s *SyncAction) prepareArtifact(username, password, override string) (*plum
 			fmt.Printf("Please add login and password for URL - %s\n", ci.URL)
 			err = keyring.RequestCredentialsFromTty(&ci)
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 
 		err = s.keyring.AddItem(ci)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		s.saveKeyring = true
 	}
@@ -127,12 +124,8 @@ func (s *SyncAction) prepareArtifact(username, password, override string) (*plum
 		override: override,
 	}
 
-	hash, err := storage.PrepareComparisonArtifact(s.comparisonDir)
-	if err != nil {
-		return nil, err
-	}
-
-	return hash, nil
+	err = storage.PrepareComparisonArtifact(s.comparisonDir)
+	return err
 }
 
 type CommitInfo struct {
@@ -1143,7 +1136,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *Inventory, modifiedFiles []st
 	return toPropagate, resourceVersionMap
 }
 
-func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string, hash *plumbing.Hash) error {
+func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string) error {
 	keyValueItem, errGet := s.getVaultPass(vaultpass)
 	if errGet != nil {
 		return errGet

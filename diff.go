@@ -18,6 +18,7 @@ var excludeSubDirs = []string{
 	".gitlab-ci.yml",
 	"scripts/ci/.gitlab-ci.platform.yaml",
 	"venv",
+	"__pycache__",
 }
 
 // GetDiffFiles takes two directory paths as inputs and returns a slice of updated file paths
@@ -42,14 +43,8 @@ func compareDirectories(dirA, dirB string, excludeSubDirs []string) ([]string, e
 	var updated []string
 
 	for f := range filesInDirA {
-		// @todo move it
-		if strings.Contains(f, "__pycache__") {
-			continue
-		}
-
 		_, found := filesInDirB[f]
 		if !found {
-			// @todo Add new files here
 			updated = append(updated, f)
 			continue
 		}
@@ -61,7 +56,6 @@ func compareDirectories(dirA, dirB string, excludeSubDirs []string) ([]string, e
 		}
 	}
 
-	// @todo add deleted files here
 	updated = append(updated, findDiff(filesInDirB, filesInDirA)...)
 
 	return updated, nil

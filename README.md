@@ -74,6 +74,7 @@ post composition) while preserving history of earlier propagated versions.
 - `ansible_collections`
 - `scripts/ci/.gitlab-ci.platform.yaml`
 - `venv`
+- `__pycache__`
 
 3. **Identify list of resources which version should be propagated:**
 

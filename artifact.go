@@ -12,8 +12,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-git/go-git/v5/plumbing"
-
 	"github.com/launchrctl/launchr/pkg/cli"
 	"github.com/launchrctl/launchr/pkg/log"
 )
@@ -39,32 +37,28 @@ type ArtifactStorage struct {
 }
 
 // PrepareComparisonArtifact prepares the artifact for comparison by downloading and extracting it into the specified directory.
-func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) (*plumbing.Hash, error) {
+func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) error {
 	repoName, err := s.repo.GetRepoName()
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	var artifactRef *plumbing.Hash
 
 	log.Info("Repository name: %s", repoName)
 	var archivePath string
 	if s.override != "" {
-		artifactRef = nil
-
 		comparisonRef := s.override
 		log.Info("OVERRIDDEN_COMPARISON_REF has been set: %s", s.override)
 		artifactFile, artifactPath := s.buildArtifactPaths(repoName, comparisonRef)
 		err = s.downloadArtifact(s.username, s.password, artifactFile, artifactPath, repoName)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		archivePath = artifactPath
 	} else {
 		hash, errHash := s.repo.git.ResolveRevision("HEAD")
 		if errHash != nil {
-			return nil, errHash
+			return errHash
 		}
 
 		from := hash
@@ -72,12 +66,11 @@ func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) (*plum
 		for retryCount < retryLimit {
 			comparisonHash, errHash := s.repo.GetComparisonCommit(*from, bumpSearchText)
 			if errHash != nil {
-				return nil, errHash
+				return errHash
 			}
 
 			commit := []rune(comparisonHash.String())
 			comparisonRef := string(commit[:7])
-			artifactRef = comparisonHash
 
 			log.Info("Bump commit identified: %s", comparisonRef)
 			artifactFile, artifactPath := s.buildArtifactPaths(repoName, comparisonRef)
@@ -89,7 +82,7 @@ func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) (*plum
 					continue
 				}
 
-				return nil, errDownload
+				return errDownload
 			}
 
 			archivePath = artifactPath
@@ -97,21 +90,21 @@ func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) (*plum
 		}
 
 		if archivePath == "" {
-			return nil, errArtifactNotFound
+			return errArtifactNotFound
 		}
 	}
 
 	cli.Println("Processing...")
 	err = s.prepareComparisonDir(comparisonDir)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	_, err = s.unarchiveTar(archivePath, comparisonDir)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return artifactRef, nil
+	return nil
 }
 
 func (s *ArtifactStorage) buildArtifactPaths(repoName, comparisonRef string) (string, string) {
