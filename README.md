@@ -9,7 +9,8 @@ Update the version of components that were updated in the last commit.
 
 ---
 
-**bump:** Updates the version of components that were modified after the last bump.  
+**bump:** Updates the version of components that were modified after the last bump.
+
 ### Bump flow
 
 1. Open the git repository.
@@ -339,6 +340,10 @@ Test status: **OK**
 
 ---
 
+### Advanced criteria with examples
+
+Package repo:
+
 #### Case 13: Successive updates of different resources in domain repo (with no dependency to each other)
 
 As a developer:
@@ -349,8 +354,10 @@ As a developer:
 - Run `plasmactl bump --sync`.
 
 **Expected Outcome:**
-Updated resources should be bumped. All dependent resources of bumped resources should be updated.
-Result of previous propagation should be copied to preserve propagation history.
+
+- Result of previous propagation is copied to preserve propagation history.
+- Updated resources in domain repository are bumped.
+- All dependent resources of bumped resources are updated.
 
 Test status: **?**
 
@@ -361,14 +368,16 @@ Test status: **?**
 As a developer:
 
 - Update several existing resources in package repo (e.g., change a template, task, dependency).
-- Run `plasmactl bump` to update the resource version during developments.
+- Run `plasmactl bump` to update the resources versions during developments.
 - Update `plasma-compose.yaml` in domain repo with new tag or branch.
 - Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
 - Run `plasmactl bump --sync`.
 
 **Expected Outcome:**
-Updated resources should be bumped. All dependent resources of bumped resources should be updated.
-Result of previous propagation should be copied to preserve propagation history.
+
+- Result of previous propagation is copied to preserve propagation history.
+- Updated resources in package repository are bumped.
+- All dependent resources of bumped resources are updated.
 
 Test status: **?**
 
@@ -387,8 +396,14 @@ As a developer:
 - Run `plasmactl bump --sync`.
 
 **Expected Outcome:**
-Updated resources in domain and package should be bumped. All dependent resources of bumped resources should be updated.
-Result of previous propagation should be copied to preserve propagation history.
+
+- Result of previous propagation is copied to preserve propagation history.
+- Updated resources in domain repository are bumped.
+- Updated resources in package repository are bumped.
+- All dependent resources of bumped domain resources are updated.
+- All dependent resources of bumped package resources are updated.
+
+> @TODO add an example?
 
 Test status: **?**
 
@@ -407,8 +422,14 @@ As a developer:
 - Run `plasmactl bump --sync`.
 
 **Expected Outcome:**
-Updated resources in domain and package should be bumped. All dependent resources of bumped resources should be updated.
-Result of previous propagation should be copied to preserve propagation history.
+
+- Result of previous propagation is copied to preserve propagation history.
+- Updated resources in domain repository are bumped.
+- Updated resources in package repository are bumped.
+- All dependent resources of bumped package resources are updated.
+- All dependent resources of bumped domain resources are updated.
+
+> @TODO add an example?
 
 Test status: **?**
 
@@ -416,11 +437,54 @@ Test status: **?**
 
 #### Case 17: Successive updates of resources with low dep in domain repo and dependants in package repo (with dependency to each other)
 
+Example state of resources:
+
+```
+ library-from-domain - ver1
+ └── function-from-package - ver1
+   └── skill-from-package - ver1
+     └── flow-from-package - ver1
+       └── executor-from-domain - ver1 
+```
+
 As a developer:
-- ---
+
+- Update low resource `library-from-domain` in domain repository (e.g., change a template, task, dependency).
+- Run `plasmactl bump` to update the resource version during developments.
+- Update resource `skill-from-package` in package repo (e.g., change a template, task, dependency).
+- Run `plasmactl bump` to update the resource version during developments.
+- Update `plasma-compose.yaml` in domain repo with new tag or branch.
+- Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
+- Run `plasmactl bump --sync`.
 
 **Expected Outcome:**
---
+
+- Result of previous propagation is copied to preserve propagation history.
+- Updated resource `library-from-domain` in domain repository is bumped and receives new version (`bump_commit_1`)
+- Updated resource `skill-from-package` in package repository is bumped and receives new version (`bump_commit_2`)
+- All dependent resources of bumped domain resources are updated.
+
+``` 
+Intermediate result of propagating versions.
+
+ library-from-domain - bump_commit_1
+ └── function-from-package - ver1-bump_commit_1
+   └── skill-from-package - ver1-bump_commit_1
+     └── flow-from-package - ver1-bump_commit_1
+       └── executor-from-domain - ver1-bump_commit_1
+```
+
+- All dependent resources of bumped package resources are updated.
+
+```
+Final result of propagating versions.
+
+ library-from-domain - bump_commit_1
+ └── function-from-package - ver1-bump_commit_1
+   └── skill-from-package - bump_commit_2
+     └── flow-from-package - ver1-bump_commit_2
+       └── executor-from-domain - ver1-bump_commit_2
+```
 
 Test status: **?**
 
@@ -428,23 +492,129 @@ Test status: **?**
 
 #### Case 18: Successive updates of resources with low dep in package repo and dependants in domain rep (with dependency to each other)
 
+Example state of resources:
+
+```
+ library-from-package - ver1
+ └── function-from-domain - ver1
+   └── skill-from-domain - ver1
+     └── flow-from-domain - ver1
+       └── executor-from-domain - ver1   
+```
+
 As a developer:
-- ---
+
+- Update low resource `library-from-package` in package repository (e.g., change a template, task, dependency).
+- Run `plasmactl bump` to update the resource version during developments.
+- Update resource `skill-from-domain` in package repository (e.g., change a template, task, dependency).
+- Run `plasmactl bump` to update the resource version during developments.
+- Update `plasma-compose.yaml` in domain repository with new tag or branch.
+- Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
+- Run `plasmactl bump --sync`.
 
 **Expected Outcome:**
---
+
+- Result of previous propagation is copied to preserve propagation history.
+- Updated resource `library-from-package` in domain repository is bumped and receives new version (`bump_commit_1`)
+- Updated resource `skill-from-domain` in package repository is bumped and receives new version (`bump_commit_2`)
+- All dependent resources of bumped domain resources are updated.
+
+``` 
+Intermediate result of propagating versions.
+
+ library-from-package - bump_commit_1
+ └── function-from-domain - ver1-bump_commit_1
+   └── skill-from-domain - ver1-bump_commit_1
+     └── flow-from-domain - ver1-bump_commit_1
+       └── executor-from-domain - ver1-bump_commit_1
+```
+
+- All dependent resources of bumped package resources are updated.
+
+```
+Final result of propagating versions.
+
+ library-from-package - bump_commit_1
+ └── function-from-domain - ver1-bump_commit_1
+   └── skill-from-domain - bump_commit_2
+     └── flow-from-domain - ver1-bump_commit_2
+       └── executor-from-domain - ver1-bump_commit_2
+```
 
 Test status: **?**
 
 ---
 
-#### Case 19: Successive updates of resources with low dep in package repo and dependants in domain rep (with dependency to each other) then updated variable in an existing group_vars/vault in domain repo
+#### Case 19: Successive updates of resources with low dep in package repository and dependants in domain rep (with dependency to each other) then updated variable in an existing group_vars/vault in domain repo
+
+Resources for example:
+
+```
+group_vars:
+- test_variable
+
+test_variable used in skill-from-domain
+
+
+ library-from-package - ver1
+ └── function-from-domain - ver1
+   └── skill-from-domain - ver1
+     └── flow-from-domain - ver1
+       └── executor-from-domain - ver1   
+```
 
 As a developer:
-- ---
+
+- Update low resource `library-from-package` in package repository (e.g., change a template, task, dependency).
+- Run `plasmactl bump` to update the resource version during developments.
+- Update resource `skill-from-domain` in domain repository (e.g., change a template, task, dependency).
+- Run `plasmactl bump` to update the resource version during developments.
+- Update variable `test_variable` in group_vars file.
+- Update `plasma-compose.yaml` in domain repository with new tag or branch.
+- Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
+- Run `plasmactl bump --sync`.
 
 **Expected Outcome:**
---
+
+- Result of previous propagation is copied to preserve propagation history.
+- Updated resource `library-from-package` in domain repository is bumped and receives new version (`bump_commit_1`).
+- Updated resource `skill-from-domain` in package repository is bumped and receives new version (`bump_commit_2`).
+- Variable update is detected, commit where variable was changed is `variable_change_commit`.
+- All dependent resources of bumped package resources are updated.
+
+``` 
+Intermediate result of propagating versions 1.
+
+ library-from-package - bump_commit_1
+ └── function-from-domain - ver1-bump_commit_1
+   └── skill-from-domain - ver1-bump_commit_1
+     └── flow-from-domain - ver1-bump_commit_1
+       └── executor-from-domain - ver1-bump_commit_1
+```
+
+- All dependent resources of bumped domain resources are updated.
+
+```
+Intermediate result of propagating versions 2.
+
+ library-from-package - bump_commit_1
+ └── function-from-domain - ver1-bump_commit_1
+   └── skill-from-domain - bump_commit_2
+     └── flow-from-domain - ver1-bump_commit_2
+       └── executor-from-domain - ver1-bump_commit_2
+```
+
+- All dependent resources of changed variable are updated.
+
+```
+Final result of propagating versions.
+
+ library-from-package - bump_commit_1
+ └── function-from-domain - ver1-bump_commit_1
+   └── skill-from-domain - bump_commit_2-variable_change_commit
+     └── flow-from-domain - ver1-variable_change_commit
+       └── executor-from-domain - ver1-variable_change_commit
+```
 
 Test status: **?**
 
