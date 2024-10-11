@@ -3,7 +3,6 @@ package plasmactlbump
 import (
 	"errors"
 	"fmt"
-	vault "github.com/sosedoff/ansible-vault-go"
 	"io"
 	"io/fs"
 	"os"
@@ -13,17 +12,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/launchrctl/compose/compose"
-	"gopkg.in/yaml.v3"
-
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
-
+	"github.com/launchrctl/compose/compose"
 	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr/pkg/cli"
 	"github.com/launchrctl/launchr/pkg/log"
+	vault "github.com/sosedoff/ansible-vault-go"
+	"gopkg.in/yaml.v3"
+
+	"github.com/skilld-labs/plasmactl-bump/pkg/repository"
+	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
 )
 
 var (
@@ -44,6 +45,7 @@ type SyncAction struct {
 	sourceDir     string
 	comparisonDir string
 	packagesDir   string
+	artifactsRepo string
 
 	// internal.
 	saveKeyring bool
@@ -54,12 +56,7 @@ type SyncAction struct {
 	artifactOverride string
 }
 
-// Execute executes the sync action by following these steps:
-// - Calls the prepareArtifact method to prepare the comparison artifact.
-// - Calls the GetDiffFiles function to get the modified files.
-// - Prints the modified files.
-// - Calls the propagate method to propagate resources' versions.
-// - Returns any error that occurs during the execution of the sync action.
+// Execute executes the sync action to propagate resources' versions.
 func (s *SyncAction) Execute(username, password string) error {
 	err := s.prepareArtifact(username, password)
 	if err != nil {
@@ -106,12 +103,8 @@ func (s *SyncAction) ensureVaultpassExists() error {
 }
 
 func (s *SyncAction) prepareArtifact(username, password string) error {
-	repo, err := getRepo()
-	if err != nil {
-		return err
-	}
-
-	ci, errGet := s.keyring.GetForURL(artifactsRepositoryDomain)
+	// Get artifact repository credentials or store new.
+	ci, errGet := s.keyring.GetForURL(s.artifactsRepo)
 	if errGet != nil {
 		if errors.Is(errGet, keyring.ErrEmptyPass) {
 			return errGet
@@ -120,36 +113,33 @@ func (s *SyncAction) prepareArtifact(username, password string) error {
 			return errMalformedKeyring
 		}
 
-		ci.URL = artifactsRepositoryDomain
+		ci.URL = s.artifactsRepo
 		ci.Username = username
 		ci.Password = password
 
 		if ci.Username == "" || ci.Password == "" {
 			fmt.Printf("Please add login and password for URL - %s\n", ci.URL)
-			err = keyring.RequestCredentialsFromTty(&ci)
+			err := keyring.RequestCredentialsFromTty(&ci)
 			if err != nil {
 				return err
 			}
 		}
 
-		err = s.keyring.AddItem(ci)
+		err := s.keyring.AddItem(ci)
 		if err != nil {
 			return err
 		}
 		s.saveKeyring = true
 	}
 
-	override = truncateOverride(override)
+	s.artifactOverride = truncateOverride(s.artifactOverride)
 
-	storage := ArtifactStorage{
-		repo:          repo,
-		username:      ci.Username,
-		password:      ci.Password,
-		override:      s.artifactOverride,
-		comparisonDir: s.comparisonDir,
+	artifact, err := sync.NewArtifact(s.artifactsRepo, s.artifactOverride, s.comparisonDir)
+	if err != nil {
+		return err
 	}
 
-	err = storage.PrepareComparisonArtifact()
+	err = artifact.Get(ci.Username, ci.Password)
 	return err
 }
 
@@ -271,15 +261,15 @@ func SortListByDate(list []VersionHistoryItem) {
 }
 
 func testGitChanges(hash *plumbing.Hash) []*CommitInfo {
-	r, err := getRepo()
+	r, err := repository.GetRepo()
 	handleError(err)
 
 	// Get the HEAD reference
-	ref, err := r.git.Head()
+	ref, err := r.GetGit().Head()
 	handleError(err)
 
 	// Get an iterator to the commit history
-	cIter, err := r.git.Log(&git.LogOptions{From: ref.Hash()})
+	cIter, err := r.GetGit().Log(&git.LogOptions{From: ref.Hash()})
 	handleError(err)
 
 	var commits []*CommitInfo
@@ -541,15 +531,15 @@ func (s *SyncAction) getVarResourcesToPropagate(composeInventory *Inventory, mod
 }
 
 func (s *SyncAction) FindResourceVersion(resource *Resource, path string) (*ResourceHistoryItem, error) {
-	repo, err := getRepoByPath(path)
+	repo, err := repository.GetRepoByPath(path)
 	if err != nil {
 		return nil, err
 	}
 
-	ref, _ := repo.git.Head()
+	ref, _ := repo.GetGit().Head()
 	// start from the latest commit and iterate to the past
 	// @todo iterate bumps ?
-	cIter, _ := repo.git.Log(&git.LogOptions{From: ref.Hash()})
+	cIter, _ := repo.GetGit().Log(&git.LogOptions{From: ref.Hash()})
 	cli.Println("!!!Getting resource history item, iterations are not by BUMP COMMITS, yet")
 
 	//currentHash := variable.hash
@@ -595,13 +585,13 @@ func (s *SyncAction) FindResourceVersion(resource *Resource, path string) (*Reso
 }
 
 func (s *SyncAction) FindUpdatedVariableVersion(variable *Variable) (*VariableHistoryItem, error) {
-	repo, err := getRepo()
+	repo, err := repository.GetRepo()
 	if err != nil {
 		return nil, err
 	}
 
-	ref, _ := repo.git.Head()
-	cIter, _ := repo.git.Log(&git.LogOptions{From: ref.Hash()})
+	ref, _ := repo.GetGit().Head()
+	cIter, _ := repo.GetGit().Log(&git.LogOptions{From: ref.Hash()})
 
 	//currentHash := variable.hash
 	var currentHash string
@@ -653,13 +643,13 @@ func (s *SyncAction) FindUpdatedVariableVersion(variable *Variable) (*VariableHi
 }
 
 func (s *SyncAction) FindDeletedVariableVersion(variable *Variable) (*VariableHistoryItem, error) {
-	repo, err := getRepo()
+	repo, err := repository.GetRepo()
 	if err != nil {
 		return nil, err
 	}
 
-	ref, _ := repo.git.Head()
-	cIter, _ := repo.git.Log(&git.LogOptions{From: ref.Hash()})
+	ref, _ := repo.GetGit().Head()
+	cIter, _ := repo.GetGit().Log(&git.LogOptions{From: ref.Hash()})
 
 	var currentHash string
 	var currentHashTime time.Time

@@ -2,10 +2,9 @@
 package plasmactlbump
 
 import (
-	"github.com/spf13/cobra"
-
 	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr"
+	"github.com/spf13/cobra"
 )
 
 func init() {
@@ -58,6 +57,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 					sourceDir:        ".compose/build",
 					comparisonDir:    ".compose/comparison-artifact",
 					packagesDir:      ".compose/packages",
+					artifactsRepo:    "https://repositories.skilld.cloud",
 					dryRun:           dryRun,
 					vaultPass:        vaultpass,
 					artifactOverride: override,

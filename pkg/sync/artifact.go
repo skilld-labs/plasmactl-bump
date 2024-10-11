@@ -1,4 +1,4 @@
-package plasmactlbump
+package sync
 
 import (
 	"archive/tar"
@@ -14,31 +14,44 @@ import (
 
 	"github.com/launchrctl/launchr/pkg/cli"
 	"github.com/launchrctl/launchr/pkg/log"
+
+	"github.com/skilld-labs/plasmactl-bump/pkg/repository"
 )
 
 const (
-	artifactsRepositoryDomain = "https://repositories.skilld.cloud"
-	artifactsPath             = ".compose/artifacts"
-	bumpSearchText            = "versions bump"
-	dirPermissions            = 0755
-	retryLimit                = 50
+	artifactsPath  = ".compose/artifacts"
+	dirPermissions = 0755
+	retryLimit     = 50
 )
 
 var (
 	errArtifactNotFound = errors.New("artifact was not found")
 )
 
-// ArtifactStorage represents a storage for artifacts.
-type ArtifactStorage struct {
-	repo          *BumperRepo
-	username      string
-	password      string
-	override      string
-	comparisonDir string
+// Artifact represents a storage for artifacts.
+type Artifact struct {
+	repo                   *repository.BumperRepo
+	artifactsRepositoryUrl string
+	override               string
+	comparisonDir          string
 }
 
-// PrepareComparisonArtifact prepares the artifact for comparison by downloading and extracting it into the specified directory.
-func (s *ArtifactStorage) PrepareComparisonArtifact() error {
+func NewArtifact(artifactsRepoUrl, override, comparisonDir string) (*Artifact, error) {
+	repo, err := repository.GetRepo()
+	if err != nil {
+		return nil, err
+	}
+
+	return &Artifact{
+		repo:                   repo,
+		override:               override,
+		comparisonDir:          comparisonDir,
+		artifactsRepositoryUrl: artifactsRepoUrl,
+	}, nil
+}
+
+// Get prepares the artifact for comparison by downloading and extracting it into the specified directory.
+func (s *Artifact) Get(username, password string) error {
 	repoName, err := s.repo.GetRepoName()
 	if err != nil {
 		return err
@@ -50,14 +63,14 @@ func (s *ArtifactStorage) PrepareComparisonArtifact() error {
 		comparisonRef := s.override
 		log.Info("OVERRIDDEN_COMPARISON_REF has been set: %s", s.override)
 		artifactFile, artifactPath := s.buildArtifactPaths(repoName, comparisonRef)
-		err = s.downloadArtifact(s.username, s.password, artifactFile, artifactPath, repoName)
+		err = s.downloadArtifact(username, password, artifactFile, artifactPath, repoName)
 		if err != nil {
 			return err
 		}
 
 		archivePath = artifactPath
 	} else {
-		hash, errHash := s.repo.git.ResolveRevision("HEAD")
+		hash, errHash := s.repo.GetGit().ResolveRevision("HEAD")
 		if errHash != nil {
 			return errHash
 		}
@@ -65,7 +78,7 @@ func (s *ArtifactStorage) PrepareComparisonArtifact() error {
 		from := hash
 		retryCount := 0
 		for retryCount < retryLimit {
-			comparisonHash, errHash := s.repo.GetComparisonCommit(*from, bumpSearchText)
+			comparisonHash, errHash := s.repo.GetComparisonCommit(*from, repository.BumpMessage)
 			if errHash != nil {
 				return errHash
 			}
@@ -75,7 +88,7 @@ func (s *ArtifactStorage) PrepareComparisonArtifact() error {
 
 			log.Info("Bump commit identified: %s", comparisonRef)
 			artifactFile, artifactPath := s.buildArtifactPaths(repoName, comparisonRef)
-			errDownload := s.downloadArtifact(s.username, s.password, artifactFile, artifactPath, repoName)
+			errDownload := s.downloadArtifact(username, password, artifactFile, artifactPath, repoName)
 			if errDownload != nil {
 				if errors.Is(errDownload, errArtifactNotFound) {
 					retryCount++
@@ -108,14 +121,14 @@ func (s *ArtifactStorage) PrepareComparisonArtifact() error {
 	return nil
 }
 
-func (s *ArtifactStorage) buildArtifactPaths(repoName, comparisonRef string) (string, string) {
+func (s *Artifact) buildArtifactPaths(repoName, comparisonRef string) (string, string) {
 	artifactFile := fmt.Sprintf("%s-%s-plasma-src.tar.gz", repoName, comparisonRef)
 	artifactPath := filepath.Join(artifactsPath, artifactFile)
 
 	return artifactFile, artifactPath
 }
 
-func (s *ArtifactStorage) prepareComparisonDir(path string) error {
+func (s *Artifact) prepareComparisonDir(path string) error {
 	err := os.MkdirAll(path, dirPermissions)
 	if err != nil {
 		return err
@@ -127,7 +140,7 @@ func (s *ArtifactStorage) prepareComparisonDir(path string) error {
 	return nil
 }
 
-func (s *ArtifactStorage) downloadArtifact(username, password, artifactFile, artifactPath, repo string) error {
+func (s *Artifact) downloadArtifact(username, password, artifactFile, artifactPath, repo string) error {
 	cli.Println("Attempting to get %s from local storage", artifactFile)
 	_, errExists := os.Stat(artifactPath)
 	if errExists == nil {
@@ -136,7 +149,7 @@ func (s *ArtifactStorage) downloadArtifact(username, password, artifactFile, art
 	}
 
 	cli.Println("Local artifact %s not found", artifactFile)
-	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", artifactsRepositoryDomain, repo, artifactFile)
+	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", s.artifactsRepositoryUrl, repo, artifactFile)
 	cli.Println("Attempting to download artifact: %s", url)
 
 	err := os.MkdirAll(artifactsPath, dirPermissions)
@@ -193,7 +206,7 @@ func (s *ArtifactStorage) downloadArtifact(username, password, artifactFile, art
 	return err
 }
 
-func (s *ArtifactStorage) unarchiveTar(fpath, tpath string) (string, error) {
+func (s *Artifact) unarchiveTar(fpath, tpath string) (string, error) {
 	var rootDir string
 	rgxPathRoot := regexp.MustCompile(`^[^/]*`)
 
@@ -281,7 +294,7 @@ func (s *ArtifactStorage) unarchiveTar(fpath, tpath string) (string, error) {
 	}
 }
 
-func (s *ArtifactStorage) sanitizeArchivePath(d, t string) (v string, err error) {
+func (s *Artifact) sanitizeArchivePath(d, t string) (v string, err error) {
 	v = filepath.Join(d, t)
 	if strings.HasPrefix(v, filepath.Clean(d)) {
 		return v, nil

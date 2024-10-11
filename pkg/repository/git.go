@@ -1,4 +1,4 @@
-package plasmactlbump
+package repository
 
 import (
 	"errors"
@@ -7,13 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-git/go-git/v5/plumbing"
-
-	"github.com/go-git/go-git/v5/plumbing/storer"
-
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/utils/merkletrie"
+)
+
+const (
+	BumpMessage = "versions bump"
 )
 
 // BumperRepo encapsulates Git-related operations for bumping versions in a Git repository.
@@ -24,7 +26,7 @@ type BumperRepo struct {
 	commitMessage string
 }
 
-func getRepo() (*BumperRepo, error) {
+func GetRepo() (*BumperRepo, error) {
 	r, err := git.PlainOpen("./")
 	if err != nil {
 		return nil, err
@@ -34,11 +36,11 @@ func getRepo() (*BumperRepo, error) {
 		git:           r,
 		name:          "Bumper",
 		mail:          "no-reply@skilld.cloud",
-		commitMessage: bumpSearchText,
+		commitMessage: BumpMessage,
 	}, nil
 }
 
-func getRepoByPath(path string) (*BumperRepo, error) {
+func GetRepoByPath(path string) (*BumperRepo, error) {
 	r, err := git.PlainOpen(path)
 	if err != nil {
 		return nil, err
@@ -48,21 +50,25 @@ func getRepoByPath(path string) (*BumperRepo, error) {
 		git:           r,
 		name:          "Bumper",
 		mail:          "no-reply@skilld.cloud",
-		commitMessage: bumpSearchText,
+		commitMessage: BumpMessage,
 	}, nil
+}
+
+func (r *BumperRepo) GetGit() *git.Repository {
+	return r.git
 }
 
 // IsOwnCommit checks if the latest commit in the Git repository was made by the bumper.
 func (r *BumperRepo) IsOwnCommit() bool {
 	ref, err := r.git.Head()
 	if err != nil {
-		PromptError(err)
+		//plasmactlbump.PromptError(err)
 		return false
 	}
 
 	commit, err := r.git.CommitObject(ref.Hash())
 	if err != nil {
-		PromptError(err)
+		//plasmactlbump.PromptError(err)
 		return false
 	}
 
@@ -79,8 +85,8 @@ func (r *BumperRepo) GetLastCommitShortHash() (string, error) {
 	return ref.Hash().String()[:13], nil
 }
 
-// getModifiedFiles gets a list of files modified in the Git repository commits after last Bump.
-func (r *BumperRepo) getModifiedFiles(last bool) ([]string, error) {
+// GetModifiedFiles gets a list of files modified in the Git repository commits after last Bump.
+func (r *BumperRepo) GetModifiedFiles(last bool) ([]string, error) {
 	var modifiedFiles []string
 
 	headRef, err := r.git.Head()

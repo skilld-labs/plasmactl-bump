@@ -7,6 +7,8 @@ import (
 
 	"github.com/launchrctl/launchr"
 	"github.com/launchrctl/launchr/pkg/cli"
+
+	"github.com/skilld-labs/plasmactl-bump/pkg/repository"
 )
 
 var (
@@ -63,7 +65,7 @@ func (k *bumpService) Bump(last bool) error {
 	fmt.Println("Bump updated versions...")
 	printMemo()
 
-	git, err := getRepo()
+	git, err := repository.GetRepo()
 	if err != nil {
 		return err
 	}
@@ -72,7 +74,7 @@ func (k *bumpService) Bump(last bool) error {
 		return errSkipBadCommit
 	}
 
-	files, err := git.getModifiedFiles(last)
+	files, err := git.GetModifiedFiles(last)
 	if err != nil {
 		return err
 	}
