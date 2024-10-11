@@ -37,13 +37,21 @@ const (
 
 // SyncAction is a type representing a resources version synchronization action.
 type SyncAction struct {
+	// services.
+	keyring keyring.Keyring
+
+	// target dirs.
 	sourceDir     string
 	comparisonDir string
 	packagesDir   string
-	dryRun        bool
-	keyring       keyring.Keyring
-	saveKeyring   bool
-	vaultPass     string
+
+	// internal.
+	saveKeyring bool
+
+	// options.
+	dryRun           bool
+	vaultPass        string
+	artifactOverride string
 }
 
 // Execute executes the sync action by following these steps:
@@ -52,13 +60,13 @@ type SyncAction struct {
 // - Prints the modified files.
 // - Calls the propagate method to propagate resources' versions.
 // - Returns any error that occurs during the execution of the sync action.
-func (s *SyncAction) Execute(username, password, override, vaultpass string) error {
-	err := s.prepareArtifact(username, password, override)
+func (s *SyncAction) Execute(username, password string) error {
+	err := s.prepareArtifact(username, password)
 	if err != nil {
 		return err
 	}
 
-	modifiedFiles, err := GetDiffFiles(s.sourceDir+"/", s.comparisonDir+"/")
+	modifiedFiles, err := GetDiffFiles(s.sourceDir, s.comparisonDir)
 	if err != nil {
 		return err
 	}
@@ -69,7 +77,12 @@ func (s *SyncAction) Execute(username, password, override, vaultpass string) err
 		log.Info("- %s", file)
 	}
 
-	err = s.propagate(modifiedFiles, vaultpass)
+	err = s.ensureVaultpassExists()
+	if err != nil {
+		return err
+	}
+
+	err = s.propagate(modifiedFiles)
 	if err != nil {
 		return err
 	}
@@ -81,7 +94,18 @@ func (s *SyncAction) Execute(username, password, override, vaultpass string) err
 	return err
 }
 
-func (s *SyncAction) prepareArtifact(username, password, override string) error {
+func (s *SyncAction) ensureVaultpassExists() error {
+	keyValueItem, errGet := s.getVaultPass(s.vaultPass)
+	if errGet != nil {
+		return errGet
+	}
+
+	s.vaultPass = keyValueItem.Value
+
+	return nil
+}
+
+func (s *SyncAction) prepareArtifact(username, password string) error {
 	repo, err := getRepo()
 	if err != nil {
 		return err
@@ -118,13 +142,14 @@ func (s *SyncAction) prepareArtifact(username, password, override string) error 
 	override = truncateOverride(override)
 
 	storage := ArtifactStorage{
-		repo:     repo,
-		username: ci.Username,
-		password: ci.Password,
-		override: override,
+		repo:          repo,
+		username:      ci.Username,
+		password:      ci.Password,
+		override:      s.artifactOverride,
+		comparisonDir: s.comparisonDir,
 	}
 
-	err = storage.PrepareComparisonArtifact(s.comparisonDir)
+	err = storage.PrepareComparisonArtifact()
 	return err
 }
 
@@ -1136,14 +1161,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *Inventory, modifiedFiles []st
 	return toPropagate, resourceVersionMap
 }
 
-func (s *SyncAction) propagate(modifiedFiles []string, vaultpass string) error {
-	keyValueItem, errGet := s.getVaultPass(vaultpass)
-	if errGet != nil {
-		return errGet
-	}
-
-	s.vaultPass = keyValueItem.Value
-
+func (s *SyncAction) propagate(modifiedFiles []string) error {
 	inv, err := NewInventory(s.vaultPass, s.sourceDir, s.comparisonDir)
 	if err != nil {
 		return err

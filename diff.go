@@ -26,8 +26,15 @@ var excludeSubDirs = []string{
 // specified in the excludeSubDirs variable) and checks if they are equal. If a file is
 // modified, its path is added to the updated slice.
 func GetDiffFiles(dirA, dirB string) ([]string, error) {
-	updated, err := compareDirectories(dirA, dirB, excludeSubDirs)
+	updated, err := compareDirectories(ensureTrailingSlash(dirA), ensureTrailingSlash(dirB), excludeSubDirs)
 	return updated, err
+}
+
+func ensureTrailingSlash(s string) string {
+	if !strings.HasSuffix(s, "/") {
+		s += "/"
+	}
+	return s
 }
 
 func compareDirectories(dirA, dirB string, excludeSubDirs []string) ([]string, error) {

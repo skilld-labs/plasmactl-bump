@@ -30,14 +30,15 @@ var (
 
 // ArtifactStorage represents a storage for artifacts.
 type ArtifactStorage struct {
-	repo     *BumperRepo
-	username string
-	password string
-	override string
+	repo          *BumperRepo
+	username      string
+	password      string
+	override      string
+	comparisonDir string
 }
 
 // PrepareComparisonArtifact prepares the artifact for comparison by downloading and extracting it into the specified directory.
-func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) error {
+func (s *ArtifactStorage) PrepareComparisonArtifact() error {
 	repoName, err := s.repo.GetRepoName()
 	if err != nil {
 		return err
@@ -95,11 +96,11 @@ func (s *ArtifactStorage) PrepareComparisonArtifact(comparisonDir string) error 
 	}
 
 	cli.Println("Processing...")
-	err = s.prepareComparisonDir(comparisonDir)
+	err = s.prepareComparisonDir(s.comparisonDir)
 	if err != nil {
 		return err
 	}
-	_, err = s.unarchiveTar(archivePath, comparisonDir)
+	_, err = s.unarchiveTar(archivePath, s.comparisonDir)
 	if err != nil {
 		return err
 	}

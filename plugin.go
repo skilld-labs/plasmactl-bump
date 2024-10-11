@@ -54,14 +54,16 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 
 			if sync {
 				syncAction := SyncAction{
-					sourceDir:     ".compose/build",
-					comparisonDir: ".compose/comparison-artifact",
-					packagesDir:   ".compose/packages",
-					dryRun:        dryRun,
-					keyring:       p.k,
+					keyring:          p.k,
+					sourceDir:        ".compose/build",
+					comparisonDir:    ".compose/comparison-artifact",
+					packagesDir:      ".compose/packages",
+					dryRun:           dryRun,
+					vaultPass:        vaultpass,
+					artifactOverride: override,
 				}
 
-				return syncAction.Execute(username, password, override, vaultpass)
+				return syncAction.Execute(username, password)
 			}
 
 			return p.b.Bump(last)
