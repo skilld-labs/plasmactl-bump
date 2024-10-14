@@ -90,28 +90,29 @@ type resourceDependencies struct {
 
 // Inventory represents the inventory used in the application to search and collect resources and variable resources.
 type Inventory struct {
-	vaultPassword    string
+	// services
 	ResourcesCrawler *ResourcesCrawler
-	resourcesMap     map[string]bool
-	requiredMap      map[string]map[string]bool
-	dependencyMap    map[string]map[string]bool
-	resourcesOrder   []string
-	sourceDir        string
-	comparisonDir    string
+
+	//internal
+	resourcesMap   map[string]bool
+	requiredMap    map[string]map[string]bool
+	dependencyMap  map[string]map[string]bool
+	resourcesOrder []string
+
+	// options
+	sourceDir string
 }
 
 // NewInventory creates a new instance of Inventory with the provided vault password.
 // It then calls the Init method of the Inventory to build the resources graph and returns
 // the initialized Inventory or any error that occurred during initialization.
-func NewInventory(vaultpass, sourceDir, comparisonDir string) (*Inventory, error) {
+func NewInventory(sourceDir string) (*Inventory, error) {
 	inv := &Inventory{
-		vaultPassword:    vaultpass,
+		sourceDir:        sourceDir,
 		ResourcesCrawler: NewResourcesCrawler(sourceDir),
 		resourcesMap:     make(map[string]bool),
 		requiredMap:      make(map[string]map[string]bool),
 		dependencyMap:    make(map[string]map[string]bool),
-		sourceDir:        sourceDir,
-		comparisonDir:    comparisonDir,
 	}
 
 	err := inv.Init()
@@ -126,7 +127,7 @@ func (i *Inventory) Init() error {
 	return err
 }
 
-// @todo add description, refactor ?
+// GetResourcesMap returns map of all resources found in source dir.
 func (i *Inventory) GetResourcesMap() map[string]bool {
 	return i.resourcesMap
 }
@@ -281,17 +282,17 @@ func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedResource
 // It takes a slice of modified file paths as input.
 // It returns the resources as an OrderedResourceMap and the variable maps as a map[string]map[string]bool.
 // If there are no changed variables, it returns nil for both the resources and variable maps.
-func (i *Inventory) GetChangedVarsResources(modifiedFiles []string) (*OrderedResourceMap, map[string]map[string]bool, error) {
-	variables, _, err := i.GetChangedVariables(modifiedFiles)
+func (i *Inventory) GetChangedVarsResources(modifiedFiles []string, comparisonDir, vaultpass string) (*OrderedResourceMap, map[string]map[string]bool, error) {
+	variables, _, err := i.GetChangedVariables(modifiedFiles, comparisonDir, vaultpass)
 	if len(variables) == 0 || err != nil {
 		return NewOrderedResourceMap(), make(map[string]map[string]bool), err
 	}
 
-	resources, resourceVariablesMap, err := i.SearchVariablesResources(variables)
+	resources, resourceVariablesMap, err := i.SearchVariablesAffectedResources(variables)
 	return resources, resourceVariablesMap, err
 }
 
-func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Variable, map[string]*Variable, error) {
+func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, vaultpass string) (map[string]*Variable, map[string]*Variable, error) {
 	changedVariables := make(map[string]*Variable)
 	deletedVariables := make(map[string]*Variable)
 	for _, path := range modifiedFiles {
@@ -309,7 +310,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Var
 		}
 
 		sourcePath := filepath.Join(i.sourceDir, path)
-		artifactPath := filepath.Join(i.comparisonDir, path)
+		artifactPath := filepath.Join(comparisonDir, path)
 		isVault := isVaultFile(path)
 
 		_, err1 := os.Stat(sourcePath)
@@ -318,12 +319,12 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Var
 		artifactFileExists := !os.IsNotExist(err2)
 
 		if sourceFileExists && artifactFileExists {
-			sourceData, err := i.loadVariablesFile(sourcePath, i.vaultPassword, isVault)
+			sourceData, err := LoadVariablesFile(sourcePath, vaultpass, isVault)
 			if err != nil {
 				return changedVariables, deletedVariables, err
 			}
 
-			artifactData, err := i.loadVariablesFile(artifactPath, i.vaultPassword, isVault)
+			artifactData, err := LoadVariablesFile(artifactPath, vaultpass, isVault)
 			if err != nil {
 				return changedVariables, deletedVariables, err
 			}
@@ -369,7 +370,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Var
 
 		} else if sourceFileExists && !artifactFileExists {
 			// New vars file, add all variable to propagate.
-			sourceData, err := i.loadVariablesFile(sourcePath, i.vaultPassword, isVault)
+			sourceData, err := LoadVariablesFile(sourcePath, vaultpass, isVault)
 			if err != nil {
 				return changedVariables, deletedVariables, err
 			}
@@ -388,7 +389,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Var
 
 		} else if !sourceFileExists && artifactFileExists {
 			// Vars file was deleted, find all removed variables.
-			artifactData, err := i.loadVariablesFile(artifactPath, i.vaultPassword, isVault)
+			artifactData, err := LoadVariablesFile(artifactPath, vaultpass, isVault)
 			if err != nil {
 				return changedVariables, deletedVariables, err
 			}
@@ -411,38 +412,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Var
 	return changedVariables, deletedVariables, nil
 }
 
-func (i *Inventory) loadVariablesFile(path, vaultPassword string, isVault bool) (map[string]interface{}, error) {
-	var data map[string]interface{}
-	var rawData []byte
-	var err error
-
-	cleanPath := filepath.Clean(path)
-	if isVault {
-		sourceVault, errDecrypt := vault.DecryptFile(cleanPath, vaultPassword)
-		if errDecrypt != nil {
-			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
-				return data, fmt.Errorf("error decrypting vault %s, password is blank", cleanPath)
-			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
-				return data, fmt.Errorf("error decrypting vault %s, invalid secret format", cleanPath)
-			} else if errDecrypt.Error() == "invalid password" {
-				return data, fmt.Errorf("invalid password for vault '%s'", cleanPath)
-			}
-
-			return data, errDecrypt
-		}
-		rawData = []byte(sourceVault)
-	} else {
-		rawData, err = os.ReadFile(cleanPath)
-		if err != nil {
-			return data, err
-		}
-	}
-
-	err = yaml.Unmarshal(rawData, &data)
-	return data, err
-}
-
-func (i *Inventory) SearchVariablesResources(variables map[string]*Variable) (*OrderedResourceMap, map[string]map[string]bool, error) {
+func (i *Inventory) SearchVariablesAffectedResources(variables map[string]*Variable) (*OrderedResourceMap, map[string]map[string]bool, error) {
 	resources := NewOrderedResourceMap()
 	resourceVariablesMap := make(map[string]map[string]bool)
 
@@ -838,4 +808,72 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 
 func isVaultFile(path string) bool {
 	return filepath.Base(path) == "vault.yaml"
+}
+
+func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any, error) {
+	var data map[string]any
+	var rawData []byte
+	var err error
+
+	cleanPath := filepath.Clean(path)
+	if isVault {
+		sourceVault, errDecrypt := vault.DecryptFile(cleanPath, vaultPassword)
+		if errDecrypt != nil {
+			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
+				return data, fmt.Errorf("error decrypting vault %s, password is blank", cleanPath)
+			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
+				return data, fmt.Errorf("error decrypting vault %s, invalid secret format", cleanPath)
+			} else if errDecrypt.Error() == "invalid password" {
+				return data, fmt.Errorf("invalid password for vault '%s'", cleanPath)
+			}
+
+			return data, errDecrypt
+		}
+		rawData = []byte(sourceVault)
+	} else {
+		rawData, err = os.ReadFile(cleanPath)
+		if err != nil {
+			return data, err
+		}
+	}
+
+	err = yaml.Unmarshal(rawData, &data)
+	return data, err
+}
+
+func LoadVariablesFileFromBytes(input []byte, vaultPassword string, isVault bool) (map[string]any, error) {
+	var data map[string]any
+	var rawData []byte
+	var err error
+
+	if isVault {
+		sourceVault, errDecrypt := vault.Decrypt(string(input), vaultPassword)
+		if errDecrypt != nil {
+			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
+				return data, fmt.Errorf("error decrypting vaults, password is blank")
+			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
+				return data, fmt.Errorf("error decrypting vault, invalid secret format")
+			} else if errDecrypt.Error() == "invalid password" {
+				return data, fmt.Errorf("invalid password for vault")
+			}
+
+			return data, errDecrypt
+		}
+		rawData = []byte(sourceVault)
+	} else {
+		rawData = input
+	}
+
+	err = yaml.Unmarshal(rawData, &data)
+	return data, err
+}
+
+func LoadYamlFileFromBytes(input []byte) (map[string]any, error) {
+	var data map[string]any
+	var rawData []byte
+	var err error
+
+	rawData = input
+	err = yaml.Unmarshal(rawData, &data)
+	return data, err
 }

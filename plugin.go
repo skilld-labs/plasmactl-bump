@@ -58,9 +58,10 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 			syncAction := SyncAction{
 				keyring: p.k,
 
-				sourceDir:        ".compose/build",
+				buildDir:         ".compose/build",
 				comparisonDir:    ".compose/comparison-artifact",
 				packagesDir:      ".compose/packages",
+				artifactsDir:     ".compose/artifacts",
 				artifactsRepoURL: "https://repositories.skilld.cloud",
 
 				dryRun:           dryRun,

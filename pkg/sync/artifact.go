@@ -30,13 +30,14 @@ var (
 // Artifact represents a storage for artifacts.
 type Artifact struct {
 	bumper                 *repository.Bumper
+	artifactsDir           string
 	artifactsRepositoryUrl string
 	override               string
 	comparisonDir          string
 	retryLimit             int
 }
 
-func NewArtifact(artifactsRepoUrl, override, comparisonDir string) (*Artifact, error) {
+func NewArtifact(artifactsDir, artifactsRepoUrl, override, comparisonDir string) (*Artifact, error) {
 	b, err := repository.NewBumper()
 	if err != nil {
 		return nil, err
@@ -45,8 +46,9 @@ func NewArtifact(artifactsRepoUrl, override, comparisonDir string) (*Artifact, e
 	return &Artifact{
 		bumper:                 b,
 		override:               override,
-		comparisonDir:          comparisonDir,
+		artifactsDir:           artifactsDir,
 		artifactsRepositoryUrl: artifactsRepoUrl,
+		comparisonDir:          comparisonDir,
 		retryLimit:             50,
 	}, nil
 }
