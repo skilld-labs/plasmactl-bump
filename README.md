@@ -620,3 +620,29 @@ Final result of propagating versions.
 Test status: **?**
 
 ---
+
+
+TEMP
+```
+ library-from-domain
+ └── function-from-domain
+   └── skill-from-domain
+     └── flow-from-domain
+       └── executor-from-domain
+ library-from-package
+ └── function-from-domain
+   └── skill-from-domain
+     └── flow-from-domain
+       └── executor-from-domain
+ library-from-domain
+ └── function-from-package
+   └── skill-from-package
+     └── flow-from-package
+       └── executor-from-domain
+ software-from-domain
+ └── service-from-domain
+   └── application-from-domain
+ software-from-package
+ └── service-from-package
+   └── application-from-package
+```
