@@ -1,4 +1,4 @@
-package plasmactlbump
+package sync
 
 import (
 	"bufio"
@@ -21,7 +21,18 @@ const (
 	variablePattern = "(?:\\s|{|\\|)(%s)(?:\\s|}|\\|)"
 )
 
-var kinds = map[string]string{
+var InventoryExcluded = []string{
+	".git",
+	".compose",
+	".plasmactl",
+	".gitlab-ci.yml",
+	"ansible_collections",
+	"scripts/ci/.gitlab-ci.platform.yaml",
+	"venv",
+	"__pycache__",
+}
+
+var Kinds = map[string]string{
 	"application": "applications",
 	"service":     "services",
 	"software":    "softwares",
@@ -41,8 +52,28 @@ type Variable struct {
 	platform string
 	name     string
 	hash     uint64
-	version  *VarVersion
 	isVault  bool
+	//version  *VarVersion
+}
+
+func (v *Variable) GetPath() string {
+	return v.filepath
+}
+
+func (v *Variable) GetPlatform() string {
+	return v.platform
+}
+
+func (v *Variable) GetName() string {
+	return v.name
+}
+
+func (v *Variable) GetHash() uint64 {
+	return v.hash
+}
+
+func (v *Variable) IsVault() bool {
+	return v.isVault
 }
 
 type VarVersion struct {
@@ -129,7 +160,7 @@ func (i *Inventory) buildResourcesGraph() error {
 		}
 
 		relPath := strings.TrimPrefix(path, i.sourceDir+"/")
-		for _, d := range excludeSubDirs {
+		for _, d := range InventoryExcluded {
 			if strings.Contains(relPath, d) {
 				return nil
 			}
@@ -139,7 +170,7 @@ func (i *Inventory) buildResourcesGraph() error {
 
 		switch entity {
 		case "dependencies.yaml":
-			platform, kind, role, errPath := processResourcePath(relPath)
+			platform, kind, role, errPath := ProcessResourcePath(relPath)
 			if errPath != nil {
 				break
 			}
@@ -148,8 +179,8 @@ func (i *Inventory) buildResourcesGraph() error {
 				break
 			}
 
-			resourceName := prepareResourceName(platform, kind, role)
-			if !isUpdatableKind(kind) {
+			resourceName := PrepareResourceName(platform, kind, role)
+			if !IsUpdatableKind(kind) {
 				break
 			}
 
@@ -264,7 +295,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string) (map[string]*Var
 	changedVariables := make(map[string]*Variable)
 	deletedVariables := make(map[string]*Variable)
 	for _, path := range modifiedFiles {
-		platform, kind, role, errPath := processResourcePath(path)
+		platform, kind, role, errPath := ProcessResourcePath(path)
 		if errPath != nil {
 			continue
 		}
@@ -668,7 +699,7 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 	}
 
 	for _, path := range files {
-		platform, _, _, errPath := processResourcePath(path)
+		platform, _, _, errPath := ProcessResourcePath(path)
 		if errPath != nil {
 			return variables, errPath
 		}

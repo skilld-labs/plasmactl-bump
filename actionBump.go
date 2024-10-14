@@ -3,19 +3,13 @@ package plasmactlbump
 import (
 	"errors"
 	"fmt"
+	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
 	"path/filepath"
 
 	"github.com/launchrctl/launchr"
 	"github.com/launchrctl/launchr/pkg/cli"
 
 	"github.com/skilld-labs/plasmactl-bump/pkg/repository"
-)
-
-var (
-	errEmptyPath     = errors.New("empty resource path")
-	errNoUpdate      = errors.New("no resources to update")
-	errSkipBadCommit = errors.New("skipping bump, as the latest commit is already by the bumper tool")
-	errFailedMeta    = errors.New("failed to open plasma.yaml")
 )
 
 var unversionedFiles = map[string]struct{}{
@@ -71,7 +65,7 @@ func (k *bumpService) Bump(last bool) error {
 	}
 
 	if bumper.IsOwnCommit() {
-		return errSkipBadCommit
+		return errors.New("skipping bump, as the latest commit is already by the bumper tool")
 	}
 
 	files, err := bumper.GetModifiedFiles(last)
@@ -81,7 +75,7 @@ func (k *bumpService) Bump(last bool) error {
 
 	resources := k.collectResources(files)
 	if len(resources) == 0 {
-		return errNoUpdate
+		return errors.New("no resources to update")
 	}
 
 	version, err := bumper.GetLastCommitShortHash()
@@ -99,15 +93,15 @@ func (k *bumpService) Bump(last bool) error {
 	return bumper.Commit()
 }
 
-func (k *bumpService) collectResources(files []string) map[string]*Resource {
+func (k *bumpService) collectResources(files []string) map[string]*sync.Resource {
 	// @TODO re-use inventory.GetChangedResources()
-	resources := make(map[string]*Resource)
+	resources := make(map[string]*sync.Resource)
 	for _, path := range files {
 		if !isVersionableFile(path) {
 			continue
 		}
 
-		platform, kind, role, err := processResourcePath(path)
+		platform, kind, role, err := sync.ProcessResourcePath(path)
 		if err != nil {
 			continue
 		}
@@ -116,11 +110,11 @@ func (k *bumpService) collectResources(files []string) map[string]*Resource {
 			continue
 		}
 
-		if isUpdatableKind(kind) {
-			resource := newResource(prepareResourceName(platform, kind, role), "")
+		if sync.IsUpdatableKind(kind) {
+			resource := sync.NewResource(sync.PrepareResourceName(platform, kind, role), "")
 			if _, ok := resources[resource.GetName()]; !ok {
 				// Check is meta/plasma.yaml exists for resource
-				if !resource.isValidResource() {
+				if !resource.IsValidResource() {
 					continue
 				}
 
@@ -134,7 +128,7 @@ func (k *bumpService) collectResources(files []string) map[string]*Resource {
 	return resources
 }
 
-func (k *bumpService) updateResources(resources map[string]*Resource, version string) error {
+func (k *bumpService) updateResources(resources map[string]*sync.Resource, version string) error {
 	if len(resources) == 0 {
 		return nil
 	}

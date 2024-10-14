@@ -51,24 +51,24 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 			// Don't show usage help on a runtime error.
 			cmd.SilenceUsage = true
 
-			if sync {
-				syncAction := SyncAction{
-					keyring: p.k,
-
-					sourceDir:        ".compose/build",
-					comparisonDir:    ".compose/comparison-artifact",
-					packagesDir:      ".compose/packages",
-					artifactsRepoURL: "https://repositories.skilld.cloud",
-
-					dryRun:           dryRun,
-					vaultPass:        vaultpass,
-					artifactOverride: override,
-				}
-
-				return syncAction.Execute(username, password)
+			if !sync {
+				return p.b.Bump(last)
 			}
 
-			return p.b.Bump(last)
+			syncAction := SyncAction{
+				keyring: p.k,
+
+				sourceDir:        ".compose/build",
+				comparisonDir:    ".compose/comparison-artifact",
+				packagesDir:      ".compose/packages",
+				artifactsRepoURL: "https://repositories.skilld.cloud",
+
+				dryRun:           dryRun,
+				vaultPass:        vaultpass,
+				artifactOverride: override,
+			}
+
+			return syncAction.Execute(username, password)
 		},
 	}
 

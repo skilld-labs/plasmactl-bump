@@ -1,7 +1,8 @@
-package plasmactlbump
+package sync
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +17,12 @@ const (
 	resourceNamePattern = "%s__%s__%s"
 )
 
-func prepareResourceName(platform, kind, role string) string {
+var (
+	ErrEmptyResourcePath = errors.New("empty resource path")
+	ErrResourceMeta      = errors.New("failed to open plasma.yaml")
+)
+
+func PrepareResourceName(platform, kind, role string) string {
 	return fmt.Sprintf(resourceNamePattern, platform, kind, role)
 }
 
@@ -26,7 +32,7 @@ type Resource struct {
 	pathPrefix string
 }
 
-func newResource(name, prefix string) *Resource {
+func NewResource(name, prefix string) *Resource {
 	return &Resource{
 		name:       name,
 		pathPrefix: prefix,
@@ -38,7 +44,7 @@ func (r *Resource) GetName() string {
 	return r.name
 }
 
-func (r *Resource) isValidResource() bool {
+func (r *Resource) IsValidResource() bool {
 	metaPath := r.buildMetaPath()
 	_, err := os.Stat(metaPath)
 
@@ -52,7 +58,7 @@ func (r *Resource) buildMetaPath() string {
 	return filepath.Join(r.pathPrefix, meta)
 }
 
-func (r *Resource) buildRelativePath() string {
+func (r *Resource) BuildRelativePath() string {
 	parts := strings.Split(r.GetName(), "__")
 
 	meta := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
@@ -66,14 +72,14 @@ func (r *Resource) GetVersion() (string, error) {
 		data, errRead := os.ReadFile(filepath.Clean(metaFile))
 		if errRead != nil {
 			log.Debug("Failed to read meta file: %v", err)
-			return "", errFailedMeta
+			return "", ErrResourceMeta
 		}
 
 		var meta map[string]interface{}
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
 			log.Debug("Failed to unmarshal meta file: %v", err)
-			return "", errFailedMeta
+			return "", ErrResourceMeta
 		}
 
 		if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
@@ -94,7 +100,7 @@ func (r *Resource) GetVersion() (string, error) {
 	}
 
 	log.Debug("Meta file (%s) is missing", metaFile)
-	return "", errFailedMeta
+	return "", ErrResourceMeta
 }
 
 func GetMetaVersion(meta map[string]interface{}) string {
@@ -171,42 +177,38 @@ func (r *Resource) UpdateVersion(version string) error {
 	}
 
 	log.Debug("Meta file (%s) is missing", metaFile)
-	return errFailedMeta
+	return ErrResourceMeta
 }
 
 // BuildResourceFromPath builds a new instance of Resource from the given path.
 func BuildResourceFromPath(path, pathPrefix string) *Resource {
-	if !isVersionableFile(path) {
+	platform, kind, role, err := ProcessResourcePath(path)
+	if err != nil || (platform == "" || kind == "" || role == "") || !IsUpdatableKind(kind) {
 		return nil
 	}
 
-	platform, kind, role, err := processResourcePath(path)
-	if err != nil || (platform == "" || kind == "" || role == "") || !isUpdatableKind(kind) {
-		return nil
-	}
-
-	resource := newResource(prepareResourceName(platform, kind, role), pathPrefix)
-	if !resource.isValidResource() {
+	resource := NewResource(PrepareResourceName(platform, kind, role), pathPrefix)
+	if !resource.IsValidResource() {
 		return nil
 	}
 	return resource
 }
 
-func processResourcePath(path string) (string, string, string, error) {
+func ProcessResourcePath(path string) (string, string, string, error) {
 	parts := strings.Split(path, "/")
 	if len(parts) > 3 {
 		return parts[0], parts[1], parts[3], nil
 	}
 
-	return "", "", "", errEmptyPath
+	return "", "", "", ErrEmptyResourcePath
 }
 
-func isUpdatableKind(kind string) bool {
-	if _, ok := kinds[kind]; ok {
+func IsUpdatableKind(kind string) bool {
+	if _, ok := Kinds[kind]; ok {
 		return true
 	}
 
-	for _, value := range kinds {
+	for _, value := range Kinds {
 		if value == kind {
 			return true
 		}
