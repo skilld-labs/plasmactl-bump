@@ -21,7 +21,6 @@ import (
 const (
 	artifactsPath  = ".compose/artifacts"
 	dirPermissions = 0755
-	retryLimit     = 50
 )
 
 var (
@@ -30,55 +29,57 @@ var (
 
 // Artifact represents a storage for artifacts.
 type Artifact struct {
-	repo                   *repository.BumperRepo
+	bumper                 *repository.Bumper
 	artifactsRepositoryUrl string
 	override               string
 	comparisonDir          string
+	retryLimit             int
 }
 
 func NewArtifact(artifactsRepoUrl, override, comparisonDir string) (*Artifact, error) {
-	repo, err := repository.GetRepo()
+	b, err := repository.NewBumper()
 	if err != nil {
 		return nil, err
 	}
 
 	return &Artifact{
-		repo:                   repo,
+		bumper:                 b,
 		override:               override,
 		comparisonDir:          comparisonDir,
 		artifactsRepositoryUrl: artifactsRepoUrl,
+		retryLimit:             50,
 	}, nil
 }
 
 // Get prepares the artifact for comparison by downloading and extracting it into the specified directory.
-func (s *Artifact) Get(username, password string) error {
-	repoName, err := s.repo.GetRepoName()
+func (a *Artifact) Get(username, password string) error {
+	repoName, err := a.bumper.GetRepoName()
 	if err != nil {
 		return err
 	}
 
 	log.Info("Repository name: %s", repoName)
 	var archivePath string
-	if s.override != "" {
-		comparisonRef := s.override
-		log.Info("OVERRIDDEN_COMPARISON_REF has been set: %s", s.override)
-		artifactFile, artifactPath := s.buildArtifactPaths(repoName, comparisonRef)
-		err = s.downloadArtifact(username, password, artifactFile, artifactPath, repoName)
+	if a.override != "" {
+		comparisonRef := a.override
+		log.Info("OVERRIDDEN_COMPARISON_REF has been set: %s", a.override)
+		artifactFile, artifactPath := a.buildArtifactPaths(repoName, comparisonRef)
+		err = a.downloadArtifact(username, password, artifactFile, artifactPath, repoName)
 		if err != nil {
 			return err
 		}
 
 		archivePath = artifactPath
 	} else {
-		hash, errHash := s.repo.GetGit().ResolveRevision("HEAD")
+		hash, errHash := a.bumper.GetGit().ResolveRevision("HEAD")
 		if errHash != nil {
 			return errHash
 		}
 
 		from := hash
 		retryCount := 0
-		for retryCount < retryLimit {
-			comparisonHash, errHash := s.repo.GetComparisonCommit(*from, repository.BumpMessage)
+		for retryCount < a.retryLimit {
+			comparisonHash, errHash := a.bumper.GetComparisonCommit(*from, repository.BumpMessage)
 			if errHash != nil {
 				return errHash
 			}
@@ -87,8 +88,8 @@ func (s *Artifact) Get(username, password string) error {
 			comparisonRef := string(commit[:7])
 
 			log.Info("Bump commit identified: %s", comparisonRef)
-			artifactFile, artifactPath := s.buildArtifactPaths(repoName, comparisonRef)
-			errDownload := s.downloadArtifact(username, password, artifactFile, artifactPath, repoName)
+			artifactFile, artifactPath := a.buildArtifactPaths(repoName, comparisonRef)
+			errDownload := a.downloadArtifact(username, password, artifactFile, artifactPath, repoName)
 			if errDownload != nil {
 				if errors.Is(errDownload, errArtifactNotFound) {
 					retryCount++
@@ -109,11 +110,11 @@ func (s *Artifact) Get(username, password string) error {
 	}
 
 	cli.Println("Processing...")
-	err = s.prepareComparisonDir(s.comparisonDir)
+	err = a.prepareComparisonDir(a.comparisonDir)
 	if err != nil {
 		return err
 	}
-	_, err = s.unarchiveTar(archivePath, s.comparisonDir)
+	_, err = a.unarchiveTar(archivePath, a.comparisonDir)
 	if err != nil {
 		return err
 	}
@@ -121,14 +122,14 @@ func (s *Artifact) Get(username, password string) error {
 	return nil
 }
 
-func (s *Artifact) buildArtifactPaths(repoName, comparisonRef string) (string, string) {
+func (a *Artifact) buildArtifactPaths(repoName, comparisonRef string) (string, string) {
 	artifactFile := fmt.Sprintf("%s-%s-plasma-src.tar.gz", repoName, comparisonRef)
 	artifactPath := filepath.Join(artifactsPath, artifactFile)
 
 	return artifactFile, artifactPath
 }
 
-func (s *Artifact) prepareComparisonDir(path string) error {
+func (a *Artifact) prepareComparisonDir(path string) error {
 	err := os.MkdirAll(path, dirPermissions)
 	if err != nil {
 		return err
@@ -140,7 +141,7 @@ func (s *Artifact) prepareComparisonDir(path string) error {
 	return nil
 }
 
-func (s *Artifact) downloadArtifact(username, password, artifactFile, artifactPath, repo string) error {
+func (a *Artifact) downloadArtifact(username, password, artifactFile, artifactPath, repo string) error {
 	cli.Println("Attempting to get %s from local storage", artifactFile)
 	_, errExists := os.Stat(artifactPath)
 	if errExists == nil {
@@ -149,7 +150,7 @@ func (s *Artifact) downloadArtifact(username, password, artifactFile, artifactPa
 	}
 
 	cli.Println("Local artifact %s not found", artifactFile)
-	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", s.artifactsRepositoryUrl, repo, artifactFile)
+	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", a.artifactsRepositoryUrl, repo, artifactFile)
 	cli.Println("Attempting to download artifact: %s", url)
 
 	err := os.MkdirAll(artifactsPath, dirPermissions)
@@ -206,7 +207,7 @@ func (s *Artifact) downloadArtifact(username, password, artifactFile, artifactPa
 	return err
 }
 
-func (s *Artifact) unarchiveTar(fpath, tpath string) (string, error) {
+func (a *Artifact) unarchiveTar(fpath, tpath string) (string, error) {
 	var rootDir string
 	rgxPathRoot := regexp.MustCompile(`^[^/]*`)
 
@@ -246,7 +247,7 @@ func (s *Artifact) unarchiveTar(fpath, tpath string) (string, error) {
 		}
 
 		// the target location where the dir/file should be created
-		target, readErr := s.sanitizeArchivePath(tpath, header.Name)
+		target, readErr := a.sanitizeArchivePath(tpath, header.Name)
 		if readErr != nil {
 			return rootDir, errors.New("invalid filepath")
 		}
@@ -294,7 +295,7 @@ func (s *Artifact) unarchiveTar(fpath, tpath string) (string, error) {
 	}
 }
 
-func (s *Artifact) sanitizeArchivePath(d, t string) (v string, err error) {
+func (a *Artifact) sanitizeArchivePath(d, t string) (v string, err error) {
 	v = filepath.Join(d, t)
 	if strings.HasPrefix(v, filepath.Clean(d)) {
 		return v, nil

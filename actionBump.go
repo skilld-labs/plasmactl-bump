@@ -65,16 +65,16 @@ func (k *bumpService) Bump(last bool) error {
 	fmt.Println("Bump updated versions...")
 	printMemo()
 
-	git, err := repository.GetRepo()
+	bumper, err := repository.NewBumper()
 	if err != nil {
 		return err
 	}
 
-	if git.IsOwnCommit() {
+	if bumper.IsOwnCommit() {
 		return errSkipBadCommit
 	}
 
-	files, err := git.GetModifiedFiles(last)
+	files, err := bumper.GetModifiedFiles(last)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func (k *bumpService) Bump(last bool) error {
 		return errNoUpdate
 	}
 
-	version, err := git.GetLastCommitShortHash()
+	version, err := bumper.GetLastCommitShortHash()
 	if err != nil {
 		fmt.Println("Can't retrieve commit hash")
 		return err
@@ -96,7 +96,7 @@ func (k *bumpService) Bump(last bool) error {
 		return err
 	}
 
-	return git.Commit()
+	return bumper.Commit()
 }
 
 func (k *bumpService) collectResources(files []string) map[string]*Resource {

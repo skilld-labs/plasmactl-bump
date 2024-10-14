@@ -42,10 +42,10 @@ type SyncAction struct {
 	keyring keyring.Keyring
 
 	// target dirs.
-	sourceDir     string
-	comparisonDir string
-	packagesDir   string
-	artifactsRepo string
+	sourceDir        string
+	comparisonDir    string
+	packagesDir      string
+	artifactsRepoURL string
 
 	// internal.
 	saveKeyring bool
@@ -104,7 +104,7 @@ func (s *SyncAction) ensureVaultpassExists() error {
 
 func (s *SyncAction) prepareArtifact(username, password string) error {
 	// Get artifact repository credentials or store new.
-	ci, errGet := s.keyring.GetForURL(s.artifactsRepo)
+	ci, errGet := s.keyring.GetForURL(s.artifactsRepoURL)
 	if errGet != nil {
 		if errors.Is(errGet, keyring.ErrEmptyPass) {
 			return errGet
@@ -113,7 +113,7 @@ func (s *SyncAction) prepareArtifact(username, password string) error {
 			return errMalformedKeyring
 		}
 
-		ci.URL = s.artifactsRepo
+		ci.URL = s.artifactsRepoURL
 		ci.Username = username
 		ci.Password = password
 
@@ -133,8 +133,7 @@ func (s *SyncAction) prepareArtifact(username, password string) error {
 	}
 
 	s.artifactOverride = truncateOverride(s.artifactOverride)
-
-	artifact, err := sync.NewArtifact(s.artifactsRepo, s.artifactOverride, s.comparisonDir)
+	artifact, err := sync.NewArtifact(s.artifactsRepoURL, s.artifactOverride, s.comparisonDir)
 	if err != nil {
 		return err
 	}
@@ -260,50 +259,50 @@ func SortListByDate(list []VersionHistoryItem) {
 	})
 }
 
-func testGitChanges(hash *plumbing.Hash) []*CommitInfo {
-	r, err := repository.GetRepo()
-	handleError(err)
-
-	// Get the HEAD reference
-	ref, err := r.GetGit().Head()
-	handleError(err)
-
-	// Get an iterator to the commit history
-	cIter, err := r.GetGit().Log(&git.LogOptions{From: ref.Hash()})
-	handleError(err)
-
-	var commits []*CommitInfo
-
-	err = cIter.ForEach(func(c *object.Commit) error {
-		if c.Hash.String() == hash.String() {
-			return storer.ErrStop
-		}
-
-		if strings.Contains(c.Message, "versions bump") {
-			//fmt.Println(c.Hash)
-			stats, err := c.Stats()
-			handleError(err)
-
-			var files []string
-			for _, stat := range stats {
-				files = append(files, stat.Name)
-			}
-
-			ci := &CommitInfo{
-				Hash:         c.Hash.String(),
-				ChangedFiles: files,
-				timestamp:    c.Author.When,
-			}
-
-			commits = append(commits, ci)
-		}
-
-		return nil
-	})
-	handleError(err)
-
-	return commits
-}
+//func testGitChanges(hash *plumbing.Hash) []*CommitInfo {
+//	r, err := repository.NewBumper()
+//	handleError(err)
+//
+//	// Get the HEAD reference
+//	ref, err := r.GetGit().Head()
+//	handleError(err)
+//
+//	// Get an iterator to the commit history
+//	cIter, err := r.GetGit().Log(&git.LogOptions{From: ref.Hash()})
+//	handleError(err)
+//
+//	var commits []*CommitInfo
+//
+//	err = cIter.ForEach(func(c *object.Commit) error {
+//		if c.Hash.String() == hash.String() {
+//			return storer.ErrStop
+//		}
+//
+//		if strings.Contains(c.Message, "versions bump") {
+//			//fmt.Println(c.Hash)
+//			stats, err := c.Stats()
+//			handleError(err)
+//
+//			var files []string
+//			for _, stat := range stats {
+//				files = append(files, stat.Name)
+//			}
+//
+//			ci := &CommitInfo{
+//				Hash:         c.Hash.String(),
+//				ChangedFiles: files,
+//				timestamp:    c.Author.When,
+//			}
+//
+//			commits = append(commits, ci)
+//		}
+//
+//		return nil
+//	})
+//	handleError(err)
+//
+//	return commits
+//}
 
 // handleError is a helper function to handle errors
 func handleError(err error) {
@@ -343,12 +342,14 @@ func (s *SyncAction) getResourcesToPropagate(composeInventory *Inventory, modifi
 		cli.Println(r.GetName())
 	}
 
-	commits := testGitChanges(hash)
-	var commitsModifiedFiles []string
-	for i := len(commits) - 1; i >= 0; i-- {
-		commit := commits[i]
-		commitsModifiedFiles = append(commit.ChangedFiles)
-	}
+	//commits := testGitChanges(hash)
+	//var commitsModifiedFiles []string
+	//for i := len(commits) - 1; i >= 0; i-- {
+	//	commit := commits[i]
+	//	commitsModifiedFiles = append(commit.ChangedFiles)
+	//}
+
+	commitsModifiedFiles := []string{}
 
 	updatedResources := NewOrderedResourceMap()
 
@@ -531,15 +532,15 @@ func (s *SyncAction) getVarResourcesToPropagate(composeInventory *Inventory, mod
 }
 
 func (s *SyncAction) FindResourceVersion(resource *Resource, path string) (*ResourceHistoryItem, error) {
-	repo, err := repository.GetRepoByPath(path)
+	repo, err := git.PlainOpen(path)
 	if err != nil {
 		return nil, err
 	}
 
-	ref, _ := repo.GetGit().Head()
+	ref, _ := repo.Head()
 	// start from the latest commit and iterate to the past
 	// @todo iterate bumps ?
-	cIter, _ := repo.GetGit().Log(&git.LogOptions{From: ref.Hash()})
+	cIter, _ := repo.Log(&git.LogOptions{From: ref.Hash()})
 	cli.Println("!!!Getting resource history item, iterations are not by BUMP COMMITS, yet")
 
 	//currentHash := variable.hash
@@ -585,7 +586,7 @@ func (s *SyncAction) FindResourceVersion(resource *Resource, path string) (*Reso
 }
 
 func (s *SyncAction) FindUpdatedVariableVersion(variable *Variable) (*VariableHistoryItem, error) {
-	repo, err := repository.GetRepo()
+	repo, err := repository.NewBumper()
 	if err != nil {
 		return nil, err
 	}
@@ -643,7 +644,7 @@ func (s *SyncAction) FindUpdatedVariableVersion(variable *Variable) (*VariableHi
 }
 
 func (s *SyncAction) FindDeletedVariableVersion(variable *Variable) (*VariableHistoryItem, error) {
-	repo, err := repository.GetRepo()
+	repo, err := repository.NewBumper()
 	if err != nil {
 		return nil, err
 	}
@@ -1278,12 +1279,14 @@ func (s *SyncAction) propagateOld(modifiedFiles []string, vaultpass string, hash
 		cli.Println(r.GetName())
 	}
 
-	commits := testGitChanges(hash)
-	var commitsmodifiedFiles []string
-	for i := len(commits) - 1; i >= 0; i-- {
-		commit := commits[i]
-		commitsmodifiedFiles = append(commit.ChangedFiles)
-	}
+	//commits := testGitChanges(hash)
+	//var commitsmodifiedFiles []string
+	//for i := len(commits) - 1; i >= 0; i-- {
+	//	commit := commits[i]
+	//	commitsmodifiedFiles = append(commit.ChangedFiles)
+	//}
+
+	commitsmodifiedFiles := []string{}
 
 	cli.Println("-----Commits modified resources-----")
 	updatedResources := inv.GetChangedResources(commitsmodifiedFiles)
