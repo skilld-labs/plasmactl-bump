@@ -349,6 +349,18 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, v
 
 						changedVariables[changedVar.name] = changedVar
 					}
+				} else {
+					// Handle new variable.
+					sourceValue := fmt.Sprint(sv)
+					newVar := &Variable{
+						filepath: path,
+						name:     k,
+						hash:     HashString(sourceValue),
+						platform: platform,
+						isVault:  isVault,
+					}
+
+					changedVariables[newVar.name] = newVar
 				}
 			}
 
