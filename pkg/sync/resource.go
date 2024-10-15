@@ -45,29 +45,26 @@ func (r *Resource) GetName() string {
 }
 
 func (r *Resource) IsValidResource() bool {
-	metaPath := r.buildMetaPath()
+	metaPath := r.getRealMetaPath()
 	_, err := os.Stat(metaPath)
 
 	return !os.IsNotExist(err)
 }
 
-func (r *Resource) buildMetaPath() string {
-	parts := strings.Split(r.GetName(), "__")
-
-	meta := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
+func (r *Resource) getRealMetaPath() string {
+	meta := r.BuildMetaPath()
 	return filepath.Join(r.pathPrefix, meta)
 }
 
-func (r *Resource) BuildRelativePath() string {
+func (r *Resource) BuildMetaPath() string {
 	parts := strings.Split(r.GetName(), "__")
-
 	meta := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
 	return meta
 }
 
 // GetVersion retrieves the version of the resource from the plasma.yaml
 func (r *Resource) GetVersion() (string, error) {
-	metaFile := r.buildMetaPath()
+	metaFile := r.getRealMetaPath()
 	if _, err := os.Stat(metaFile); err == nil {
 		data, errRead := os.ReadFile(filepath.Clean(metaFile))
 		if errRead != nil {
@@ -75,36 +72,27 @@ func (r *Resource) GetVersion() (string, error) {
 			return "", ErrResourceMeta
 		}
 
-		var meta map[string]interface{}
+		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
 			log.Debug("Failed to unmarshal meta file: %v", err)
 			return "", ErrResourceMeta
 		}
 
-		if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
-			version := plasma["version"]
-			if version == nil {
-				version = ""
-			}
-			val, okConversion := version.(string)
-			if okConversion {
-				return val, nil
-			}
-
-			return fmt.Sprint(version), nil
+		version := GetMetaVersion(meta)
+		if version == "" {
+			log.Debug("Empty meta file, return empty string as version")
 		}
 
-		log.Debug("Empty meta file, return empty string as version")
-		return "", nil
+		return version, nil
 	}
 
 	log.Debug("Meta file (%s) is missing", metaFile)
 	return "", ErrResourceMeta
 }
 
-func GetMetaVersion(meta map[string]interface{}) string {
-	if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
+func GetMetaVersion(meta map[string]any) string {
+	if plasma, ok := meta["plasma"].(map[string]any); ok {
 		version := plasma["version"]
 		if version == nil {
 			version = ""
@@ -120,24 +108,24 @@ func GetMetaVersion(meta map[string]interface{}) string {
 	return ""
 }
 
-// GetBaseVersion.....
-func (r *Resource) GetBaseVersion() (string, error) {
+// GetBaseVersion returns resource version without `-` if any.
+func (r *Resource) GetBaseVersion() (string, string, error) {
 	version, err := r.GetVersion()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	split := strings.Split(version, "-")
 	if len(split) > 2 {
-		panic("your version format is wrong...probably")
+		log.Warn("Resource %s has incorrect version format %s", version, r.GetName())
 	}
 
-	return split[0], nil
+	return split[0], version, nil
 }
 
 // UpdateVersion updates the version of the resource in the plasma.yaml file
 func (r *Resource) UpdateVersion(version string) error {
-	metaFile := r.buildMetaPath()
+	metaFile := r.getRealMetaPath()
 	if _, err := os.Stat(metaFile); err == nil {
 		data, errRead := os.ReadFile(filepath.Clean(metaFile))
 		if errRead != nil {
@@ -146,17 +134,17 @@ func (r *Resource) UpdateVersion(version string) error {
 		}
 
 		var b bytes.Buffer
-		var meta map[string]interface{}
+		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
 			log.Debug("Failed to unmarshal meta file: %v", errUnmarshal)
 			return errUnmarshal
 		}
 
-		if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
+		if plasma, ok := meta["plasma"].(map[string]any); ok {
 			plasma["version"] = version
 		} else {
-			meta["plasma"] = map[string]interface{}{"version": version}
+			meta["plasma"] = map[string]any{"version": version}
 		}
 
 		yamlEncoder := yaml.NewEncoder(&b)

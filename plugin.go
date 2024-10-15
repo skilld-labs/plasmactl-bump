@@ -4,6 +4,7 @@ package plasmactlbump
 import (
 	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr"
+	"github.com/launchrctl/launchr/pkg/log"
 	"github.com/spf13/cobra"
 )
 
@@ -58,6 +59,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 			syncAction := SyncAction{
 				keyring: p.k,
 
+				domainDir:        ".",
 				buildDir:         ".compose/build",
 				comparisonDir:    ".compose/comparison-artifact",
 				packagesDir:      ".compose/packages",
@@ -66,7 +68,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 
 				dryRun:           dryRun,
 				vaultPass:        vaultpass,
-				artifactOverride: override,
+				artifactOverride: truncateOverride(override),
 			}
 
 			return syncAction.Execute(username, password)
@@ -83,4 +85,14 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 
 	rootCmd.AddCommand(bumpCmd)
 	return nil
+}
+
+func truncateOverride(override string) string {
+	truncateLength := 7
+
+	if len(override) > truncateLength {
+		log.Info("Truncated override value to %d chars: %s", truncateLength, override)
+		return override[:truncateLength]
+	}
+	return override
 }

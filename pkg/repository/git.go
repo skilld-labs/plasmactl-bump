@@ -40,20 +40,6 @@ func NewBumper() (*Bumper, error) {
 	}, nil
 }
 
-func GetRepoByPath(path string) (*Bumper, error) {
-	r, err := git.PlainOpen(path)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Bumper{
-		git:           r,
-		name:          "Bumper",
-		mail:          "no-reply@skilld.cloud",
-		commitMessage: BumpMessage,
-	}, nil
-}
-
 func (r *Bumper) GetGit() *git.Repository {
 	return r.git
 }

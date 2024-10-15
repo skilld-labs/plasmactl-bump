@@ -693,7 +693,7 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 			return variables, errRead
 		}
 
-		var sourceData map[string]interface{}
+		var sourceData map[string]any
 		errMarshal := yaml.Unmarshal(sourceVariables, &sourceData)
 		if errMarshal != nil {
 			log.Debug("Unable to unmarshal YAML file: %s", errMarshal)

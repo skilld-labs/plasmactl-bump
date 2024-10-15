@@ -19,12 +19,11 @@ import (
 )
 
 const (
-	artifactsPath  = ".compose/artifacts"
 	dirPermissions = 0755
 )
 
 var (
-	errArtifactNotFound = errors.New("artifact was not found")
+	ErrArtifactNotFound = errors.New("artifact was not found")
 )
 
 // Artifact represents a storage for artifacts.
@@ -93,7 +92,7 @@ func (a *Artifact) Get(username, password string) error {
 			artifactFile, artifactPath := a.buildArtifactPaths(repoName, comparisonRef)
 			errDownload := a.downloadArtifact(username, password, artifactFile, artifactPath, repoName)
 			if errDownload != nil {
-				if errors.Is(errDownload, errArtifactNotFound) {
+				if errors.Is(errDownload, ErrArtifactNotFound) {
 					retryCount++
 					from = comparisonHash
 					continue
@@ -107,7 +106,7 @@ func (a *Artifact) Get(username, password string) error {
 		}
 
 		if archivePath == "" {
-			return errArtifactNotFound
+			return ErrArtifactNotFound
 		}
 	}
 
@@ -126,7 +125,7 @@ func (a *Artifact) Get(username, password string) error {
 
 func (a *Artifact) buildArtifactPaths(repoName, comparisonRef string) (string, string) {
 	artifactFile := fmt.Sprintf("%s-%s-plasma-src.tar.gz", repoName, comparisonRef)
-	artifactPath := filepath.Join(artifactsPath, artifactFile)
+	artifactPath := filepath.Join(a.artifactsDir, artifactFile)
 
 	return artifactFile, artifactPath
 }
@@ -155,7 +154,7 @@ func (a *Artifact) downloadArtifact(username, password, artifactFile, artifactPa
 	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", a.artifactsRepositoryUrl, repo, artifactFile)
 	cli.Println("Attempting to download artifact: %s", url)
 
-	err := os.MkdirAll(artifactsPath, dirPermissions)
+	err := os.MkdirAll(a.artifactsDir, dirPermissions)
 	if err != nil {
 		return err
 	}
@@ -198,7 +197,7 @@ func (a *Artifact) downloadArtifact(username, password, artifactFile, artifactPa
 			return errors.New("invalid credentials")
 		}
 		if statusCode == http.StatusNotFound {
-			return errArtifactNotFound
+			return ErrArtifactNotFound
 		}
 
 		return fmt.Errorf("unexpected status code: %d while trying to get %s", statusCode, url)

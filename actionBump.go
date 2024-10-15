@@ -3,8 +3,9 @@ package plasmactlbump
 import (
 	"errors"
 	"fmt"
-	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
 	"path/filepath"
+
+	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
 
 	"github.com/launchrctl/launchr"
 	"github.com/launchrctl/launchr/pkg/cli"

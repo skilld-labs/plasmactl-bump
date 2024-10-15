@@ -1,9 +1,10 @@
 package sync
 
 import (
-	"github.com/launchrctl/launchr/pkg/cli"
 	"sort"
 	"time"
+
+	"github.com/launchrctl/launchr/pkg/cli"
 )
 
 type TimelineItem interface {
