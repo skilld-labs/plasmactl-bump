@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
-
 	"github.com/launchrctl/launchr"
 	"github.com/launchrctl/launchr/pkg/cli"
 
 	"github.com/skilld-labs/plasmactl-bump/pkg/repository"
+	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
 )
 
 var unversionedFiles = map[string]struct{}{

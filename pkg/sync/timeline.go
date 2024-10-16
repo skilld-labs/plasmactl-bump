@@ -8,6 +8,7 @@ import (
 )
 
 type TimelineItem interface {
+	GetCommit() string
 	GetVersion() string
 	GetDate() time.Time
 	Merge(item TimelineItem)
@@ -28,6 +29,10 @@ func NewTimelineResourcesItem(version, commit string, date time.Time) *TimelineR
 		date:      date,
 		resources: make(map[string]*Resource),
 	}
+}
+
+func (i *TimelineResourcesItem) GetCommit() string {
+	return i.commit
 }
 
 func (i *TimelineResourcesItem) GetVersion() string {
@@ -57,7 +62,7 @@ func (i *TimelineResourcesItem) Merge(item TimelineItem) {
 }
 
 func (i *TimelineResourcesItem) Print() {
-	cli.Println("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.commit)
+	cli.Println("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
 	cli.Println("Resource List:")
 	for resource, _ := range i.resources {
 		cli.Println("- %s", resource)
@@ -78,6 +83,10 @@ func NewTimelineVariablesItem(version, commit string, date time.Time) *TimelineV
 		date:      date,
 		variables: make(map[string]*Variable),
 	}
+}
+
+func (i *TimelineVariablesItem) GetCommit() string {
+	return i.commit
 }
 
 func (i *TimelineVariablesItem) GetVersion() string {
@@ -107,7 +116,7 @@ func (i *TimelineVariablesItem) Merge(item TimelineItem) {
 }
 
 func (i *TimelineVariablesItem) Print() {
-	cli.Println("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.commit)
+	cli.Println("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
 	cli.Println("Variable List:")
 	for variable, _ := range i.variables {
 		cli.Println("- %s", variable)
@@ -142,4 +151,8 @@ func SortTimeline(list []TimelineItem) {
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].GetDate().Before(list[j].GetDate())
 	})
+}
+
+func CreateTimeline() []TimelineItem {
+	return make([]TimelineItem, 0)
 }

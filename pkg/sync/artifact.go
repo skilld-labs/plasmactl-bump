@@ -30,7 +30,7 @@ var (
 type Artifact struct {
 	bumper                 *repository.Bumper
 	artifactsDir           string
-	artifactsRepositoryUrl string
+	artifactsRepositoryURL string
 	override               string
 	comparisonDir          string
 	retryLimit             int
@@ -46,7 +46,7 @@ func NewArtifact(artifactsDir, artifactsRepoUrl, override, comparisonDir string)
 		bumper:                 b,
 		override:               override,
 		artifactsDir:           artifactsDir,
-		artifactsRepositoryUrl: artifactsRepoUrl,
+		artifactsRepositoryURL: artifactsRepoUrl,
 		comparisonDir:          comparisonDir,
 		retryLimit:             50,
 	}, nil
@@ -151,7 +151,7 @@ func (a *Artifact) downloadArtifact(username, password, artifactFile, artifactPa
 	}
 
 	cli.Println("Local artifact %s not found", artifactFile)
-	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", a.artifactsRepositoryUrl, repo, artifactFile)
+	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", a.artifactsRepositoryURL, repo, artifactFile)
 	cli.Println("Attempting to download artifact: %s", url)
 
 	err := os.MkdirAll(a.artifactsDir, dirPermissions)

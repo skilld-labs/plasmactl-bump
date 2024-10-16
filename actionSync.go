@@ -202,273 +202,10 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 	// update resources.
 	err = s.updateResources(toPropagate, resourceVersionMap)
 
-	// @todo
-	//    determine which resources are coming from artifact and copy their versions from artifact
-	//    propagate resources that were changes in commits.
-	//    ideally commit by commit.
-	//updatedResources, err := s.getResourcesToPropagate(inv, modifiedFiles, hash)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//updatedVarResources, resourceVarsMap, variables, err := s.getVarResourcesToPropagate(inv, modifiedFiles)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//if updatedResources.Len() == 0 && updatedVarResources.Len() == 0 {
-	//	cli.Println("WARNING: No resources were found for propagation")
-	//	return nil
-	//}
-	////panic("123")
-	//
-	//if updatedResources.Len() > 0 {
-	//	updatedResources.OrderBy(inv.GetResourcesOrder())
-	//	s.printResources("Resources whose version need to be propagated:", updatedResources)
-	//}
-	//
-	//if updatedVarResources.Len() > 0 {
-	//	updatedVarResources.OrderBy(inv.GetResourcesOrder())
-	//	s.printResources("Resources whose version need to be updated and propagated:", updatedVarResources)
-	//}
-	//
-	//log.Info("Collecting resources dependencies:")
-	//toPropagate := NewOrderedResourceMap()
-	//resourceVersionMap := make(map[string]string)
-	//
-	//for _, key := range updatedResources.OrderedKeys() {
-	//	r, ok := updatedResources.Get(key)
-	//	if !ok {
-	//		continue
-	//	}
-	//
-	//	errCollectDeps := s.collectResourceDependencies(r, toPropagate, inv.GetRequiredMap(), resourceVersionMap)
-	//	if errCollectDeps != nil {
-	//		return errCollectDeps
-	//	}
-	//}
-	//
-	//for _, key := range updatedVarResources.OrderedKeys() {
-	//	r, ok := updatedVarResources.Get(key)
-	//	if !ok {
-	//		continue
-	//	}
-	//
-	//	// @todo, recheck and improve
-	//	// Get version from variable, compare versions by date, select latest one
-	//
-	//	vars := resourceVarsMap[r.GetName()]
-	//	_, version := s.getLatestVersionBetweenVars(vars, variables)
-	//	version = version[:13]
-	//	cli.Println("Version for resource %s is %s", r.GetName(), version)
-	//	cli.Println("Selected from list of %v", vars)
-	//	s.collectDependenciesRecursively(r, version, toPropagate, inv.GetRequiredMap(), resourceVersionMap)
-	//}
-
-	//cli.Println("%v", resourceVersionMap)
-
-	//s.printVariablesInfo(resourceVarsMap)
-
 	return err
 }
 
-//func (s *SyncAction) getResourcesToPropagate(composeInventory *sync.Inventory, modifiedFiles []string, hash *plumbing.Hash) (*sync.OrderedResourceMap, error) {
-//	allUpdatedResources := composeInventory.GetChangedResources(modifiedFiles)
-//	cli.Println("-----All modified resources-----")
-//	for _, key := range allUpdatedResources.OrderedKeys() {
-//		r, ok := allUpdatedResources.Get(key)
-//		if !ok {
-//			continue
-//		}
-//		cli.Println(r.GetName())
-//	}
-//
-//	//commits := testGitChanges(hash)
-//	//var commitsModifiedFiles []string
-//	//for i := len(commits) - 1; i >= 0; i-- {
-//	//	commit := commits[i]
-//	//	commitsModifiedFiles = append(commit.ChangedFiles)
-//	//}
-//
-//	commitsModifiedFiles := []string{}
-//
-//	updatedResources := sync.NewOrderedResourceMap()
-//
-//	cli.Println("-----Platform modified resources-----")
-//	// @todo filter later by compose results (merge strategies)
-//	platformUpdatedResources := composeInventory.GetChangedResources(commitsModifiedFiles)
-//	for _, key := range platformUpdatedResources.OrderedKeys() {
-//		r, ok := platformUpdatedResources.Get(key)
-//		if !ok {
-//			continue
-//		}
-//
-//		if _, okBld := allUpdatedResources.Get(key); okBld {
-//			allUpdatedResources.Unset(key)
-//		}
-//
-//		// @todo to merge properly in the end instead of creating many OrderedResourceMap?
-//		updatedResources.Set(key, r)
-//		cli.Println(r.GetName())
-//	}
-//
-//	// @todo compose update?
-//	//   prepare compose result file with selected package versions, resolved conflicts between files, dir
-//	//   so we can determine from which place resources came (platform code or package code)
-//
-//	// For now parse compose yaml, collect packages and their versions.
-//	// It will allow us to prepare inventories for each entry.
-//
-//	plasmaCompose, err := composeLookup(os.DirFS("."))
-//	if err != nil {
-//		panic("error getting plasma compose")
-//	}
-//
-//	// Get list of packages from plasma-compose with their versions.
-//	packagePathMap := make(map[string]string)
-//	for _, dep := range plasmaCompose.Dependencies {
-//		pkg := dep.ToPackage(dep.Name)
-//		tag := pkg.GetTag()
-//		branch := pkg.GetRef()
-//		var version string
-//		if tag != "" {
-//			version = tag
-//		} else if branch != "" {
-//			version = branch
-//		} else {
-//			panic("can't find package version")
-//		}
-//
-//		packagePathMap[dep.Name] = filepath.Join(s.packagesDir, pkg.GetName(), version)
-//	}
-//
-//	// Iterate each package, generate inventory, check if there was change between artifact and build.
-//	cli.Println("-----Packages modified resources-----")
-//	for name, packagePath := range packagePathMap {
-//		cli.Println("---%s - %s---", name, packagePath)
-//		packageResources, _ := s.getResourcesMapFrom(packagePath)
-//
-//		for resourceName := range packageResources {
-//			// if resource not in global updated list -> skip it
-//			// if updated:
-//			// 1) check if resource exists in composed repo, if not - skip
-//			// 2) check if version is different
-//			//   a) if base version is the same, copy artifact version to build
-//			//   b) if base version is different, put resource to propagation
-//			if _, okBld := allUpdatedResources.Get(resourceName); !okBld {
-//				continue
-//			}
-//
-//			buildResource, _ := allUpdatedResources.Get(resourceName)
-//			if !buildResource.IsValidResource() {
-//				//  @TODO to recheck Deleted resources skipped.
-//				cli.Println("- Deleted resource, to skip %s", buildResource.GetName())
-//				allUpdatedResources.Unset(buildResource.GetName())
-//				continue
-//			}
-//
-//			artifactResource := sync.NewResource(buildResource.GetName(), s.comparisonDir)
-//			if !artifactResource.IsValidResource() {
-//				// @TODO to recheck New resource, propagate it
-//				cli.Println("- New resource, to propagate %s", buildResource.GetName())
-//				updatedResources.Set(buildResource.GetName(), buildResource)
-//				allUpdatedResources.Unset(buildResource.GetName())
-//				continue
-//			}
-//
-//			buildVersion, err := buildResource.GetBaseVersion()
-//			if err != nil {
-//				panic(err)
-//			}
-//
-//			artifactVersion, err := artifactResource.GetBaseVersion()
-//			if err != nil {
-//				panic(err)
-//			}
-//
-//			if buildVersion != artifactVersion {
-//				cli.Println("- Base versions are different, to propagate %s", buildResource.GetName())
-//				updatedResources.Set(buildResource.GetName(), buildResource)
-//				allUpdatedResources.Unset(buildResource.GetName())
-//			}
-//		}
-//
-//		cli.Println("")
-//	}
-//
-//	cli.Println("-----Artifact modified resources-----")
-//	for _, key := range allUpdatedResources.OrderedKeys() {
-//		r, ok := allUpdatedResources.Get(key)
-//		if !ok {
-//			continue
-//		}
-//
-//		cli.Println(r.GetName())
-//		// @todo temporary
-//		// set version from artifact to build dir
-//
-//		artifactResource := sync.NewResource(r.GetName(), s.comparisonDir)
-//		if artifactResource.IsValidResource() {
-//			artifactVersion, err := artifactResource.GetVersion()
-//			if err != nil {
-//				return nil, err
-//			}
-//			cli.Println("- Artifact version of %s is %s", artifactResource.GetName(), artifactVersion)
-//			if s.dryRun {
-//				continue
-//			}
-//
-//			cli.Println("- Copy version %s", artifactVersion)
-//			err = r.UpdateVersion(artifactVersion)
-//			if err != nil {
-//				return nil, err
-//			}
-//		}
-//	}
-//
-//	return updatedResources, nil
-//}
-//
-//func (s *SyncAction) getVarResourcesToPropagate(composeInventory *sync.Inventory, modifiedFiles []string) (*sync.OrderedResourceMap, map[string]map[string]bool, map[string]*sync.Variable, error) {
-//	variables, _, err := composeInventory.GetChangedVariables(modifiedFiles)
-//	if err != nil {
-//		panic(err)
-//	}
-//
-//	// find all new versions of updated resources to propagate (commit)
-//	cli.Println("\nVariables list:")
-//	for _, variable := range variables {
-//		_, err := s.FindUpdatedVariableVersion(variable)
-//		if err != nil {
-//			panic(err)
-//		}
-//	}
-//
-//	updatedVarResources, resourceVarsMap, err := composeInventory.GetChangedVarsResources(modifiedFiles)
-//	if err != nil {
-//		return updatedVarResources, resourceVarsMap, variables, err
-//	}
-//
-//	for _, key := range updatedVarResources.OrderedKeys() {
-//		r, ok := updatedVarResources.Get(key)
-//		if !ok {
-//			continue
-//		}
-//
-//		cli.Println("%s", r.GetName())
-//	}
-//
-//	for outerKey, innerMap := range resourceVarsMap {
-//		fmt.Println("Resource: ", outerKey)
-//		for innerKey := range innerMap {
-//			fmt.Println("    Variable: ", innerKey)
-//		}
-//	}
-//
-//	return updatedVarResources, resourceVarsMap, variables, err
-//}
-
-func (s *SyncAction) FindResourceChangeTime(resourceVersion, resourceMetaPath string, repo *git.Repository) (*sync.TimelineResourcesItem, error) {
+func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath string, repo *git.Repository) (*sync.TimelineResourcesItem, error) {
 	ref, err := repo.Head()
 	if err != nil {
 		return nil, err
@@ -493,7 +230,7 @@ func (s *SyncAction) FindResourceChangeTime(resourceVersion, resourceMetaPath st
 				prevHashTime = c.Author.When
 			}
 
-			cli.Println("File didn't exist before, take current hash as version")
+			//cli.Println("File didn't exist before, take current hash as version")
 			return storer.ErrStop
 		}
 
@@ -531,7 +268,10 @@ func (s *SyncAction) FindResourceChangeTime(resourceVersion, resourceMetaPath st
 	return tri, err
 }
 
-func (s *SyncAction) FindVariableUpdateTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
+func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
+	// @TODO look for several vars during iteration?
+	// @TODO ensure value we search existed before
+
 	ref, err := repo.Head()
 	if err != nil {
 		return nil, err
@@ -555,7 +295,7 @@ func (s *SyncAction) FindVariableUpdateTime(variable *sync.Variable, repo *git.R
 				currentHashTime = c.Author.When
 			}
 
-			cli.Println("File didn't exist before, take current hash as version")
+			//cli.Println("File didn't exist before, take current hash as version")
 			return storer.ErrStop
 		}
 
@@ -568,13 +308,13 @@ func (s *SyncAction) FindVariableUpdateTime(variable *sync.Variable, repo *git.R
 
 		prevVar, exists := varFile[variable.GetName()]
 		if !exists {
-			cli.Println("Variable didn't exist before, take current hash as version")
+			//cli.Println("Variable didn't exist before, take current hash as version")
 			return storer.ErrStop
 		}
 
 		prevVarHash := sync.HashString(fmt.Sprint(prevVar))
 		if variable.GetHash() != prevVarHash {
-			cli.Println("Variable exists, hashes don't match, stop iterating")
+			//cli.Println("Variable exists, hashes don't match, stop iterating")
 			return storer.ErrStop
 
 		}
@@ -584,12 +324,15 @@ func (s *SyncAction) FindVariableUpdateTime(variable *sync.Variable, repo *git.R
 		return nil
 	})
 
-	tvi := sync.NewTimelineVariablesItem(currentHash, currentHash, currentHashTime)
+	tvi := sync.NewTimelineVariablesItem(currentHash[:13], currentHash, currentHashTime)
 
 	return tvi, err
 }
 
-func (s *SyncAction) FindVariableDeletionTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
+func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
+	// @TODO look for several vars during iteration?
+	// @TODO ensure variable existed at first place, before starting to search.
+
 	ref, err := repo.Head()
 	if err != nil {
 		return nil, err
@@ -604,7 +347,7 @@ func (s *SyncAction) FindVariableDeletionTime(variable *sync.Variable, repo *git
 	err = cIter.ForEach(func(c *object.Commit) error {
 		file, err := c.File(variable.GetPath())
 		if errors.Is(err, object.ErrFileNotFound) {
-			cli.Println("File doesn't exists, continue searching for file with variable")
+			//cli.Println("File doesn't exist, continue searching for file with variable")
 			currentHash = c.Hash.String()
 			currentHashTime = c.Author.When
 			return nil
@@ -619,17 +362,17 @@ func (s *SyncAction) FindVariableDeletionTime(variable *sync.Variable, repo *git
 
 		_, exists := varFile[variable.GetName()]
 		if !exists {
-			cli.Println("Variable doesn't exist %s, continue search", currentHash)
+			//cli.Println("Variable doesn't exist %s, continue search", currentHash)
 			currentHash = c.Hash.String()
 			currentHashTime = c.Author.When
 			return nil
 		}
 
-		cli.Println("Variable exists, stop search")
+		//cli.Println("Variable exists, stop search")
 		return storer.ErrStop
 	})
 
-	tvi := sync.NewTimelineVariablesItem(currentHash, currentHash, currentHashTime)
+	tvi := sync.NewTimelineVariablesItem(currentHash[:13], currentHash, currentHashTime)
 
 	return tvi, err
 }
@@ -692,7 +435,7 @@ func (s *SyncAction) getResourcesMaps() (map[string]map[string]bool, map[string]
 		buildVersion, _ := buildResourceEntity.GetVersion()
 
 		var sameVersionNamespaces []string
-		for conflictingNamespace, _ := range conflicts {
+		for conflictingNamespace := range conflicts {
 			var conflictEntity *sync.Resource
 			if conflictingNamespace == domainNamespace {
 				conflictEntity = sync.NewResource(resourceName, s.buildDir)
@@ -700,10 +443,13 @@ func (s *SyncAction) getResourcesMaps() (map[string]map[string]bool, map[string]
 				conflictEntity = sync.NewResource(resourceName, packagePathMap[conflictingNamespace])
 			}
 
-			baseVersion, _, _ := conflictEntity.GetBaseVersion()
+			baseVersion, _, err := conflictEntity.GetBaseVersion()
+			if err != nil {
+				return nil, nil, err
+			}
 
 			if baseVersion != buildVersion {
-				cli.Println("removing from %s, %s, %s", conflictingNamespace, resourceName, baseVersion)
+				log.Debug("removing %s (%s) from %s as other version was used during composition", resourceName, baseVersion, conflictingNamespace)
 				delete(resourcesMap[conflictingNamespace], resourceName)
 			} else {
 				sameVersionNamespaces = append(sameVersionNamespaces, conflictingNamespace)
@@ -711,11 +457,7 @@ func (s *SyncAction) getResourcesMaps() (map[string]map[string]bool, map[string]
 		}
 
 		if len(sameVersionNamespaces) > 1 {
-			// Should be super rare situation
-			cli.Println("conflicts for %s", resourceName)
-			cli.Println("%v", conflicts)
-			cli.Println("same version namespaces: %v", sameVersionNamespaces)
-
+			log.Debug("resolving additional strategies conflict for %s", resourceName)
 			var highest string
 			for i := len(priorityOrder) - 1; i >= 0; i-- {
 				if _, ok := resourcesMap[priorityOrder[i]]; ok {
@@ -769,83 +511,52 @@ func (s *SyncAction) getResourcesMapFrom(dir string) (map[string]bool, error) {
 }
 
 func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []string) ([]sync.TimelineItem, *sync.OrderedResourceMap, error) {
-	var timeline []sync.TimelineItem
+	timeline := sync.CreateTimeline()
 
-	allUpdatedResources := buildInv.GetChangedResources(modifiedFiles)
-	cli.Println("-----All different resources between build and artifact-----")
-	for _, key := range allUpdatedResources.OrderedKeys() {
-		r, ok := allUpdatedResources.Get(key)
-		if !ok {
-			continue
+	allDiffResources := buildInv.GetChangedResources(modifiedFiles)
+	if allDiffResources.Len() > 0 {
+		cli.Println("\nResources diff between build and artifact")
+		for _, key := range allDiffResources.OrderedKeys() {
+			r, ok := allDiffResources.Get(key)
+			if !ok {
+				continue
+			}
+			cli.Println("- %s", r.GetName())
 		}
-		cli.Println("- %s", r.GetName())
-	}
 
-	if allUpdatedResources.Len() == 0 {
-		return timeline, allUpdatedResources, nil
-	}
+		cli.Println("\nGathering domain and package resources")
+		resourcesMap, packagePathMap, err := s.getResourcesMaps()
+		if err != nil {
+			return timeline, nil, err
+		}
 
-	resourcesMap, packagePathMap, err := s.getResourcesMaps()
-	if err != nil {
-		return timeline, nil, err
-	}
-
-	// Find new or updated resources in diff.
-	timeline, err = s.someCoolNameForResTimelineItems(allUpdatedResources, resourcesMap[domainNamespace], timeline, s.domainDir)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Iterate each package, generate inventory, check if there were changes between artifact and build.
-	cli.Println("")
-	cli.Println("-----Packages modified resources-----")
-	for name, packagePath := range packagePathMap {
-		cli.Println("---%s - %s---", name, packagePath)
-		timeline, err = s.someCoolNameForResTimelineItems(allUpdatedResources, resourcesMap[name], timeline, packagePath)
+		// Find new or updated resources in diff.
+		cli.Println("\nChecking domain resources")
+		timeline, err = s.someCoolNameForResTimelineItems(allDiffResources, resourcesMap[domainNamespace], timeline, s.domainDir)
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// Iterate each package, find new or updated resources in diff.
+		cli.Println("\nChecking packages resources")
+		for name, packagePath := range packagePathMap {
+			timeline, err = s.someCoolNameForResTimelineItems(allDiffResources, resourcesMap[name], timeline, packagePath)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
 	}
 
-	timeline, err = s.someCoolNameForVarTimelineItems(buildInv, modifiedFiles, timeline, s.domainDir)
+	cli.Println("\nChecking variables change")
+	timeline, err := s.someCoolNameForVarTimelineItems(buildInv, modifiedFiles, timeline, s.domainDir)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	//cli.Println("-----Gathering Changed Variables-----")
-	//updatedVariables, deletedVariables, err := buildInv.GetChangedVariables(modifiedFiles, s.comparisonDir, s.vaultPass)
-	//if err != nil {
-	//	return timeline, nil, err
-	//}
-	//
-	//// find all new versions of updated resources to propagate (commit)
-	//cli.Println("Updated or New Variables list:")
-	//for _, variable := range updatedVariables {
-	//	cli.Println("%s - %s", variable.GetName(), variable.GetPath())
-	//
-	//	vhi, err := s.FindVariableUpdateTime(variable)
-	//	handleError(err)
-	//	timeline = sync.AddToTimeline(timeline, vhi)
-	//
-	//	cli.Println("version of %s from %s is %s, %s", variable.GetName(), variable.GetPath(), vhi.GetVersion(), vhi.GetDate())
-	//}
-	//
-	//cli.Println("-----Gathering Deleted Variables-----")
-	//for _, variable := range deletedVariables {
-	//	cli.Println("%s - %s", variable.GetName(), variable.GetPath())
-	//
-	//	vhi, err := s.FindVariableDeletionTime(variable)
-	//	handleError(err)
-	//	timeline = sync.AddToTimeline(timeline, vhi)
-	//
-	//	cli.Println("version of %s from %s is %s, %s", variable.GetName(), variable.GetPath(), vhi.GetVersion(), vhi.GetDate())
-	//}
-
-	return timeline, allUpdatedResources, nil
+	return timeline, allDiffResources, nil
 }
 
 func (s *SyncAction) someCoolNameForResTimelineItems(allUpdatedResources *sync.OrderedResourceMap, namespaceResources map[string]bool, timeline []sync.TimelineItem, gitPath string) ([]sync.TimelineItem, error) {
-	cli.Println("-----Namespace X resources-----")
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return nil, err
@@ -871,7 +582,7 @@ func (s *SyncAction) someCoolNameForResTimelineItems(allUpdatedResources *sync.O
 		// If resource doesn't exist in artifact, consider it as new and add to timeline.
 		artifactResource := sync.NewResource(buildResource.GetName(), s.comparisonDir)
 		if !artifactResource.IsValidResource() {
-			ti, errTi := s.FindResourceChangeTime(buildBaseVersion, buildResource.BuildMetaPath(), repo)
+			ti, errTi := s.findResourceChangeTime(buildBaseVersion, buildResource.BuildMetaPath(), repo)
 			if errTi != nil {
 				return timeline, errTi
 			}
@@ -879,6 +590,8 @@ func (s *SyncAction) someCoolNameForResTimelineItems(allUpdatedResources *sync.O
 			timeline = sync.AddToTimeline(timeline, ti)
 
 			allUpdatedResources.Unset(buildResource.GetName())
+
+			cli.Println("- %s - new resource from %s", buildResource.GetName(), gitPath)
 			continue
 		}
 
@@ -889,9 +602,7 @@ func (s *SyncAction) someCoolNameForResTimelineItems(allUpdatedResources *sync.O
 
 		// If domain and artifact resource have different versions, consider it as an update. Push update into timeline.
 		if buildBaseVersion != artifactBaseVersion {
-			cli.Println("- %s - Base versions are different, to propagate", buildResource.GetName())
-
-			ti, errTi := s.FindResourceChangeTime(buildBaseVersion, buildResource.BuildMetaPath(), repo)
+			ti, errTi := s.findResourceChangeTime(buildBaseVersion, buildResource.BuildMetaPath(), repo)
 			if errTi != nil {
 				return timeline, errTi
 			}
@@ -900,11 +611,12 @@ func (s *SyncAction) someCoolNameForResTimelineItems(allUpdatedResources *sync.O
 			timeline = sync.AddToTimeline(timeline, ti)
 			allUpdatedResources.Unset(buildResource.GetName())
 
+			cli.Println("- %s - updated resource from %s", buildResource.GetName(), gitPath)
 			continue
 		}
 
 		if buildFullVersion == artifactFullVersion {
-			log.Warn("resource %s is marked as updated, but version in build (%s) and artifact (%s) are identical. Forgot to bump or non-bump files are updated.", resourceName, buildFullVersion, artifactFullVersion)
+			log.Warn("resource %s is marked as updated, but version in build (%s) and artifact (%s) are identical, skipping.", resourceName, buildFullVersion, artifactFullVersion)
 			allUpdatedResources.Unset(buildResource.GetName())
 		}
 	}
@@ -913,43 +625,40 @@ func (s *SyncAction) someCoolNameForResTimelineItems(allUpdatedResources *sync.O
 }
 
 func (s *SyncAction) someCoolNameForVarTimelineItems(buildInv *sync.Inventory, modifiedFiles []string, timeline []sync.TimelineItem, gitPath string) ([]sync.TimelineItem, error) {
-	repo, err := git.PlainOpen(gitPath)
-	if err != nil {
-		return nil, err
-	}
-
-	cli.Println("-----Gathering Changed Variables-----")
 	updatedVariables, deletedVariables, err := buildInv.GetChangedVariables(modifiedFiles, s.comparisonDir, s.vaultPass)
 	if err != nil {
 		return timeline, err
 	}
 
-	cli.Println("New or Updated Variables list:")
-	for _, variable := range updatedVariables {
-		cli.Println("%s - %s", variable.GetName(), variable.GetPath())
-
-		ti, errTi := s.FindVariableUpdateTime(variable, repo)
-		if errTi != nil {
-			return timeline, errTi
-		}
-		ti.AddVariable(variable)
-		timeline = sync.AddToTimeline(timeline, ti)
-
-		cli.Println("version of %s from %s is %s, %s", variable.GetName(), variable.GetPath(), ti.GetVersion(), ti.GetDate())
+	if len(updatedVariables) == 0 && len(deletedVariables) == 0 {
+		cli.Println("- no variables were updated or deleted")
+		return timeline, nil
 	}
 
-	cli.Println("-----Gathering Deleted Variables-----")
-	for _, variable := range deletedVariables {
-		cli.Println("%s - %s", variable.GetName(), variable.GetPath())
-
-		ti, errTi := s.FindVariableDeletionTime(variable, repo)
+	repo, err := git.PlainOpen(gitPath)
+	if err != nil {
+		return nil, err
+	}
+	for _, variable := range updatedVariables {
+		ti, errTi := s.findVariableUpdateTime(variable, repo)
 		if errTi != nil {
 			return timeline, errTi
 		}
 		ti.AddVariable(variable)
 		timeline = sync.AddToTimeline(timeline, ti)
 
-		cli.Println("version of %s from %s is %s, %s", variable.GetName(), variable.GetPath(), ti.GetVersion(), ti.GetDate())
+		cli.Println("- %s - new or updated variable from %s", variable.GetName(), variable.GetPath())
+	}
+
+	for _, variable := range deletedVariables {
+		ti, errTi := s.findVariableDeletionTime(variable, repo)
+		if errTi != nil {
+			return timeline, errTi
+		}
+		ti.AddVariable(variable)
+		timeline = sync.AddToTimeline(timeline, ti)
+
+		cli.Println("- %s - deleted variable from %s", variable.GetName(), variable.GetPath())
 	}
 
 	return timeline, nil
@@ -959,18 +668,27 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 	resourceVersionMap := make(map[string]string)
 	toPropagate := sync.NewOrderedResourceMap()
 
-	cli.Println("------TIMELINE-SORTED------")
 	sync.SortTimeline(timeline)
+	cli.Println("\nIterating timeline:")
 	for _, item := range timeline {
-		item.Print()
-		cli.Println("")
-	}
-	cli.Println("")
+		log.Debug("ver: %s, date: %s, commit: %s", item.GetVersion(), item.GetDate(), item.GetCommit())
 
-	cli.Println("------Building versions map-----")
-	for _, item := range timeline {
 		switch i := item.(type) {
 		case *sync.TimelineResourcesItem:
+			for _, r := range i.GetResources() {
+				//_, ok := toPropagate.Get(r.GetName())
+				//if ok {
+				//	// Ensure new version removes previous propagation for that resource.
+				//	toPropagate.Unset(r.GetName())
+				//	delete(resourceVersionMap, r.GetName())
+				//}
+
+				cli.Println("gathering %s deps:", r.GetName())
+				err := s.propagateResourceDeps(r, i.GetVersion(), toPropagate, buildInv.GetRequiredMap(), resourceVersionMap)
+				if err != nil {
+					return toPropagate, resourceVersionMap, err
+				}
+			}
 			for _, r := range i.GetResources() {
 				_, ok := toPropagate.Get(r.GetName())
 				if ok {
@@ -978,25 +696,28 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 					toPropagate.Unset(r.GetName())
 					delete(resourceVersionMap, r.GetName())
 				}
-
-				err := s.collectResourceDependenciesWithVersion(r, i.GetVersion(), toPropagate, buildInv.GetRequiredMap(), resourceVersionMap)
-				if err != nil {
-					return toPropagate, resourceVersionMap, err
-				}
 			}
+
 		case *sync.TimelineVariablesItem:
 			resources, _, err := buildInv.SearchVariablesAffectedResources(i.GetVariables())
 			if err != nil {
 				return toPropagate, resourceVersionMap, err
 			}
-			version := i.GetVersion()[:13]
+			cli.Println("vars:")
+			for variable := range i.GetVariables() {
+				cli.Println("- %s", variable)
+			}
+
+			cli.Println("gathering deps:")
+			version := i.GetVersion()
 			for _, key := range resources.OrderedKeys() {
 				r, ok := resources.Get(key)
 				if !ok {
 					continue
 				}
+
 				// @todo just apply version ? no need to collect anything because they are already collected.
-				s.collectDependenciesRecursively(r, version, toPropagate, buildInv.GetRequiredMap(), resourceVersionMap)
+				s.propagateDepsRecursively(r, version, toPropagate, buildInv.GetRequiredMap(), resourceVersionMap)
 			}
 		}
 	}
@@ -1004,199 +725,27 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 	return toPropagate, resourceVersionMap, nil
 }
 
-//func (s *SyncAction) propagateOld(modifiedFiles []string, vaultpass string, hash *plumbing.Hash) error {
-//	keyValueItem, errGet := s.keyring.GetForKey(vaultpassKey)
-//	if errGet != nil {
-//		if errors.Is(errGet, keyring.ErrEmptyPass) {
-//			return errGet
-//		} else if !errors.Is(errGet, keyring.ErrNotFound) {
-//			log.Debug("%s", errGet)
-//			return errMalformedKeyring
-//		}
-//
-//		keyValueItem.Key = vaultpassKey
-//		keyValueItem.Value = vaultpass
-//
-//		if keyValueItem.Value == "" {
-//			cli.Println("- Ansible vault password")
-//			err := keyring.RequestKeyValueFromTty(&keyValueItem)
-//			if err != nil {
-//				return err
-//			}
-//		}
-//
-//		err := s.keyring.AddItem(keyValueItem)
-//		if err != nil {
-//			return err
-//		}
-//		s.saveKeyring = true
-//	}
-//
-//	inv, err := sync.NewInventory(keyValueItem.Value, s.buildDir, s.comparisonDir)
-//	if err != nil {
-//		return err
-//	}
-//
-//	// @todo
-//	//    determine which resources are coming from artifact and copy their versions from artifact
-//	//    propagate resources that were changes in commits.
-//	//    ideally commit by commit.
-//	allUpdatedResources := inv.GetChangedResources(modifiedFiles)
-//
-//	cli.Println("-----All modified resources-----")
-//	for _, key := range allUpdatedResources.OrderedKeys() {
-//		r, ok := allUpdatedResources.Get(key)
-//		if !ok {
-//			continue
-//		}
-//		cli.Println(r.GetName())
-//	}
-//
-//	//commits := testGitChanges(hash)
-//	//var commitsmodifiedFiles []string
-//	//for i := len(commits) - 1; i >= 0; i-- {
-//	//	commit := commits[i]
-//	//	commitsmodifiedFiles = append(commit.ChangedFiles)
-//	//}
-//
-//	commitsmodifiedFiles := []string{}
-//
-//	cli.Println("-----Commits modified resources-----")
-//	updatedResources := inv.GetChangedResources(commitsmodifiedFiles)
-//	for _, key := range updatedResources.OrderedKeys() {
-//		r, ok := updatedResources.Get(key)
-//		if !ok {
-//			continue
-//		}
-//
-//		if _, okArt := allUpdatedResources.Get(key); okArt {
-//			allUpdatedResources.Unset(key)
-//		}
-//
-//		cli.Println(r.GetName())
-//	}
-//
-//	cli.Println("-----Artifact modified resources-----")
-//	for _, key := range allUpdatedResources.OrderedKeys() {
-//		r, ok := allUpdatedResources.Get(key)
-//		if !ok {
-//			continue
-//		}
-//
-//		cli.Println(r.GetName())
-//		// @todo temporary
-//		// set version from artifact to build dir
-//
-//		artifactResource := sync.NewResource(r.GetName(), s.comparisonDir)
-//		if artifactResource.IsValidResource() {
-//			artifactVersion, err := artifactResource.GetVersion()
-//			if err != nil {
-//				return err
-//			}
-//			cli.Println("Artifact version of %s is %s", artifactResource.GetName(), artifactVersion)
-//			if s.dryRun {
-//				continue
-//			}
-//			err = r.UpdateVersion(artifactVersion)
-//			cli.Println("Copy version %s", artifactVersion)
-//			if err != nil {
-//				return err
-//			}
-//		}
-//	}
-//
-//	updatedVarResources, resourceVarsMap, err := inv.GetChangedVarsResources(modifiedFiles)
-//	if err != nil {
-//		return err
-//	}
-//
-//	if updatedResources.Len() == 0 && updatedVarResources.Len() == 0 {
-//		cli.Println("WARNING: No resources were found for propagation")
-//		return nil
-//	}
-//
-//	if updatedResources.Len() > 0 {
-//		updatedResources.OrderBy(inv.GetResourcesOrder())
-//		s.printResources("Resources whose version need to be propagated:", updatedResources)
-//	}
-//
-//	if updatedVarResources.Len() > 0 {
-//		updatedVarResources.OrderBy(inv.GetResourcesOrder())
-//		s.printResources("Resources whose version need to be updated and propagated:", updatedVarResources)
-//	}
-//
-//	log.Info("Collecting resources dependencies:")
-//	toPropagate := sync.NewOrderedResourceMap()
-//	resourceVersionMap := make(map[string]string)
-//
-//	for _, key := range updatedResources.OrderedKeys() {
-//		r, ok := updatedResources.Get(key)
-//		if !ok {
-//			continue
-//		}
-//
-//		errCollectDeps := s.collectResourceDependencies(r, toPropagate, inv.GetRequiredMap(), resourceVersionMap)
-//		if errCollectDeps != nil {
-//			return errCollectDeps
-//		}
-//	}
-//
-//	for _, key := range updatedVarResources.OrderedKeys() {
-//		r, ok := updatedVarResources.Get(key)
-//		if !ok {
-//			continue
-//		}
-//
-//		// hash tactics
-//		// 1. changed var -> resources [ ... ], set changed var hash to all resources
-//		// 2. changed var -> dep. var -> resources [ ... ], set changed var hash to all resources
-//		// 3. changed var 1 \ -> dep. var -> go to 2
-//		//                    -> dev. var -> resources [ ... ] set var_1__var_2 hash to all resources
-//		//    changed var 2 / -> dev. var -> go to 2
-//		// 4  changer var 1 -> changed dep.var -> resources [ ... ], set changed var1 hash to all resources
-//		vars := resourceVarsMap[r.GetName()]
-//		version := s.generateVariablesHash(vars)
-//		s.collectDependenciesRecursively(r, version, toPropagate, inv.GetRequiredMap(), resourceVersionMap)
-//	}
-//
-//	s.printVariablesInfo(resourceVarsMap)
-//	err = s.updateResources(toPropagate, resourceVersionMap)
-//
-//	return err
-//}
-
 func (s *SyncAction) copyHistory(history *sync.OrderedResourceMap) error {
-	cli.Println("-----Artifact resources to copy (probably)-----")
+	cli.Println("Copying history from artifact:")
 	for _, key := range history.OrderedKeys() {
 		r, ok := history.Get(key)
 		if !ok {
 			continue
 		}
 
-		cli.Println(r.GetName())
-
-		// @todo temporary
 		// set version from artifact to build dir
 		artifactResource := sync.NewResource(r.GetName(), s.comparisonDir)
 		if artifactResource.IsValidResource() {
-			buildVersion, err := r.GetVersion()
-			if err != nil {
-				return err
-			}
 			artifactVersion, err := artifactResource.GetVersion()
 			if err != nil {
 				return err
 			}
 
-			cli.Println("- Build version    - %s", buildVersion)
-			cli.Println("- Artifact version - %s", artifactVersion)
+			cli.Println("- copy %s - %s", r.GetName(), artifactVersion)
 			if s.dryRun {
-				cli.Println("")
 				continue
 			}
 
-			cli.Println("- Copy version %s", artifactVersion)
-			cli.Println("")
 			err = r.UpdateVersion(artifactVersion)
 			if err != nil {
 				return err
@@ -1300,57 +849,7 @@ func (s *SyncAction) printVariablesInfo(rvm map[string]map[string]bool) {
 	}
 }
 
-//func (s *SyncAction) getLatestVersionBetweenVars(vars map[string]bool, allVars map[string]*sync.Variable) (latestVar string, latestVersion string) {
-//	latestDate := time.Time{}
-//
-//	for v := range vars {
-//		if variable, ok := allVars[v]; ok {
-//			if variable.version.Date.After(latestDate) {
-//				latestDate = variable.version.Date
-//				latestVar = v
-//				latestVersion = variable.version.Version
-//			}
-//		}
-//	}
-//
-//	return latestVar, latestVersion
-//}
-//func (s *SyncAction) generateVariablesHash(vars map[string]bool) string {
-//	keys := make([]string, 0, len(vars))
-//	for k := range vars {
-//		keys = append(keys, k)
-//	}
-//
-//	key := strings.Join(keys, "__")
-//	hash := sync.HashString(key)
-//	base16Hash := strconv.FormatUint(hash, 16)
-//	return "." + base16Hash[:13]
-//}
-
-//func (s *SyncAction) collectResourceDependencies(resource *sync.Resource, toPropagate *sync.OrderedResourceMap, resourcesGraph map[string]map[string]bool, resourceVersionMap map[string]string) error {
-//	version, err := resource.GetVersion()
-//	if err != nil {
-//		return err
-//	}
-//	if version == "" {
-//		log.Debug("- %s has an empty version", resource.GetName())
-//		return errEmptyVersions
-//	}
-//
-//	if items, ok := resourcesGraph[resource.GetName()]; ok {
-//		for resourceName := range items {
-//			depResource := sync.NewResource(resourceName, s.buildDir)
-//			if !depResource.IsValidResource() {
-//				continue
-//			}
-//			s.collectDependenciesRecursively(depResource, version, toPropagate, resourcesGraph, resourceVersionMap)
-//		}
-//	}
-//
-//	return nil
-//}
-
-func (s *SyncAction) collectResourceDependenciesWithVersion(resource *sync.Resource, version string, toPropagate *sync.OrderedResourceMap, resourcesGraph map[string]map[string]bool, resourceVersionMap map[string]string) error {
+func (s *SyncAction) propagateResourceDeps(resource *sync.Resource, version string, toPropagate *sync.OrderedResourceMap, resourcesGraph map[string]map[string]bool, resourceVersionMap map[string]string) error {
 	if items, ok := resourcesGraph[resource.GetName()]; ok {
 		for resourceName := range items {
 			depResource, resourceExists := toPropagate.Get(resourceName)
@@ -1361,24 +860,19 @@ func (s *SyncAction) collectResourceDependenciesWithVersion(resource *sync.Resou
 				}
 			}
 
-			s.collectDependenciesRecursively(depResource, version, toPropagate, resourcesGraph, resourceVersionMap)
+			s.propagateDepsRecursively(depResource, version, toPropagate, resourcesGraph, resourceVersionMap)
 		}
 	}
 
 	return nil
 }
 
-func (s *SyncAction) collectDependenciesRecursively(resource *sync.Resource, version string, toPropagate *sync.OrderedResourceMap, resourcesGraph map[string]map[string]bool, resourceVersionMap map[string]string) {
-	//_, add := toPropagate.Get(resource.GetName())
-	//if add {
-	//	return
-	//}
-
+func (s *SyncAction) propagateDepsRecursively(resource *sync.Resource, version string, toPropagate *sync.OrderedResourceMap, resourcesGraph map[string]map[string]bool, resourceVersionMap map[string]string) {
 	if _, ok := toPropagate.Get(resource.GetName()); !ok {
-		log.Info("- Adding %s", resource.GetName())
 		toPropagate.Set(resource.GetName(), resource)
 	}
 	resourceVersionMap[resource.GetName()] = version
+	cli.Println("- %s", resource.GetName())
 
 	if items, ok := resourcesGraph[resource.GetName()]; ok {
 		for resourceName := range items {
@@ -1389,7 +883,7 @@ func (s *SyncAction) collectDependenciesRecursively(resource *sync.Resource, ver
 					continue
 				}
 			}
-			s.collectDependenciesRecursively(depResource, version, toPropagate, resourcesGraph, resourceVersionMap)
+			s.propagateDepsRecursively(depResource, version, toPropagate, resourcesGraph, resourceVersionMap)
 		}
 	}
 }

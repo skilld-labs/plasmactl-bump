@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/launchrctl/launchr/pkg/log"
 	vault "github.com/sosedoff/ansible-vault-go"
@@ -53,7 +52,6 @@ type Variable struct {
 	name     string
 	hash     uint64
 	isVault  bool
-	//version  *VarVersion
 }
 
 func (v *Variable) GetPath() string {
@@ -74,11 +72,6 @@ func (v *Variable) GetHash() uint64 {
 
 func (v *Variable) IsVault() bool {
 	return v.isVault
-}
-
-type VarVersion struct {
-	Version string
-	Date    time.Time
 }
 
 type resourceDependencies struct {
@@ -271,7 +264,6 @@ func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedResource
 		if _, ok := resources.Get(resource.GetName()); ok {
 			continue
 		}
-		log.Debug("Processing resource %s", resource.GetName())
 		resources.Set(resource.GetName(), resource)
 	}
 

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/launchrctl/launchr/pkg/log"
-
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,7 +22,7 @@ var (
 )
 
 func PrepareResourceName(platform, kind, role string) string {
-	return fmt.Sprintf(resourceNamePattern, platform, kind, role)
+	return fmt.Sprintf("%s__%s__%s", platform, kind, role)
 }
 
 // Resource represents a platform resource
