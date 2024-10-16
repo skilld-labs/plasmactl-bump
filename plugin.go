@@ -49,7 +49,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 	var bumpCmd = &cobra.Command{
 		Use:   "bump",
 		Short: "Bump or sync versions of updated components",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Don't show usage help on a runtime error.
 			cmd.SilenceUsage = true
 

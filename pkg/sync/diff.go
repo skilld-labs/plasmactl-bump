@@ -9,15 +9,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 )
 
-// GetDiffFiles takes two directory paths as inputs and returns a slice of updated file paths
-// and an error. It compares the files in the two directories (excluding subdirectories
-// specified in the ExcludeSubDirs variable) and checks if they are equal. If a file is
-// modified, its path is added to the updated slice.
-//func GetDiffFiles(dirA, dirB string) ([]string, error) {
-//	updated, err := CompareDirs(ensureTrailingSlash(dirA), ensureTrailingSlash(dirB), ExcludeSubDirs)
-//	return updated, err
-//}
-
+// CompareDirs takes two directory paths as inputs and returns a slice of different files between them.
 func CompareDirs(dirA, dirB string, excludeSubDirs []string) ([]string, error) {
 	filesInDirA, err := getFiles(dirA, excludeSubDirs)
 	if err != nil {
@@ -115,6 +107,7 @@ func hashFile(path string) uint64 {
 	return hash.Sum64()
 }
 
+// HashString is wrapper for hashing string.
 func HashString(item string) uint64 {
 	return xxhash.Sum64String(item)
 }

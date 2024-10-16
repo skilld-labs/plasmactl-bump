@@ -378,6 +378,9 @@ func (s *SyncAction) getResourcesMaps() (map[string]map[string]bool, map[string]
 	packagePathMap := make(map[string]string)
 
 	buildResources, err := s.getResourcesMapFrom(s.buildDir)
+	if err != nil {
+		return nil, nil, err
+	}
 	resourcesMap[domainNamespace], err = s.getResourcesMapFrom(s.domainDir)
 	if err != nil {
 		return resourcesMap, packagePathMap, err

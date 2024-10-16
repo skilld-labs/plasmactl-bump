@@ -1,3 +1,4 @@
+// Package repository stores tools to work with git repository.
 package repository
 
 import (
@@ -15,6 +16,7 @@ import (
 )
 
 const (
+	// BumpMessage is bump commit message.
 	BumpMessage = "versions bump"
 )
 
@@ -26,6 +28,7 @@ type Bumper struct {
 	commitMessage string
 }
 
+// NewBumper returns new instance of [Bumper].
 func NewBumper() (*Bumper, error) {
 	r, err := git.PlainOpen("./")
 	if err != nil {
@@ -40,6 +43,7 @@ func NewBumper() (*Bumper, error) {
 	}, nil
 }
 
+// GetGit returns internal [*git.Repository]
 func (r *Bumper) GetGit() *git.Repository {
 	return r.git
 }

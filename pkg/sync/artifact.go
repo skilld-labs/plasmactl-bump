@@ -1,3 +1,4 @@
+// Package sync contains tools to provide bump propagation.
 package sync
 
 import (
@@ -18,11 +19,13 @@ import (
 )
 
 const (
+	// ArtifactTruncateLength contains bump commit hash truncate length.
 	ArtifactTruncateLength = 7
 	dirPermissions         = 0755
 )
 
 var (
+	// ErrArtifactNotFound not artifact error.
 	ErrArtifactNotFound = errors.New("artifact was not found")
 )
 
@@ -36,7 +39,8 @@ type Artifact struct {
 	retryLimit             int
 }
 
-func NewArtifact(artifactsDir, artifactsRepoUrl, override, comparisonDir string) (*Artifact, error) {
+// NewArtifact returns new instance of artifact to get.
+func NewArtifact(artifactsDir, artifactsRepoURL, override, comparisonDir string) (*Artifact, error) {
 	b, err := repository.NewBumper()
 	if err != nil {
 		return nil, err
@@ -46,7 +50,7 @@ func NewArtifact(artifactsDir, artifactsRepoUrl, override, comparisonDir string)
 		bumper:                 b,
 		override:               override,
 		artifactsDir:           artifactsDir,
-		artifactsRepositoryURL: artifactsRepoUrl,
+		artifactsRepositoryURL: artifactsRepoURL,
 		comparisonDir:          comparisonDir,
 		retryLimit:             50,
 	}, nil
@@ -271,7 +275,7 @@ func (a *Artifact) unarchiveTar(fpath, tpath string) (string, error) {
 
 		// if it's a file create it
 		case tar.TypeReg:
-			f, errOpen := os.OpenFile(filepath.Clean(target), os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+			f, errOpen := os.OpenFile(filepath.Clean(target), os.O_CREATE|os.O_RDWR, header.FileInfo().Mode())
 			if errOpen != nil {
 				return rootDir, errOpen
 			}

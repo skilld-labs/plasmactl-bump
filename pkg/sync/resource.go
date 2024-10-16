@@ -9,19 +9,15 @@ import (
 	"strings"
 
 	"github.com/launchrctl/launchr"
-
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	resourceNamePattern = "%s__%s__%s"
-)
-
 var (
-	ErrEmptyResourcePath = errors.New("empty resource path")
-	ErrResourceMeta      = errors.New("failed to open plasma.yaml")
+	errResourceMeta = errors.New("failed to open plasma.yaml")
 )
 
+// PrepareResourceName concatenates resource platform, kind and role via specific template.
+// It allows to have common resource names.
 func PrepareResourceName(platform, kind, role string) string {
 	return fmt.Sprintf("%s__%s__%s", platform, kind, role)
 }
@@ -32,6 +28,7 @@ type Resource struct {
 	pathPrefix string
 }
 
+// NewResource returns new [Resource] instance.
 func NewResource(name, prefix string) *Resource {
 	return &Resource{
 		name:       name,
@@ -44,6 +41,7 @@ func (r *Resource) GetName() string {
 	return r.name
 }
 
+// IsValidResource checks if resource has meta file.
 func (r *Resource) IsValidResource() bool {
 	metaPath := r.getRealMetaPath()
 	_, err := os.Stat(metaPath)
@@ -56,6 +54,7 @@ func (r *Resource) getRealMetaPath() string {
 	return filepath.Join(r.pathPrefix, meta)
 }
 
+// BuildMetaPath returns common path to resource meta.
 func (r *Resource) BuildMetaPath() string {
 	parts := strings.Split(r.GetName(), "__")
 	meta := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
@@ -69,14 +68,14 @@ func (r *Resource) GetVersion() (string, error) {
 		data, errRead := os.ReadFile(filepath.Clean(metaFile))
 		if errRead != nil {
 			launchr.Log().Debug(fmt.Sprintf("Failed to read meta file: %v", err))
-			return "", ErrResourceMeta
+			return "", errResourceMeta
 		}
 
 		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
 			launchr.Log().Debug(fmt.Sprintf("Failed to unmarshal meta file: %v", err))
-			return "", ErrResourceMeta
+			return "", errResourceMeta
 		}
 
 		version := GetMetaVersion(meta)
@@ -87,9 +86,10 @@ func (r *Resource) GetVersion() (string, error) {
 		return version, nil
 	}
 
-	return "", ErrResourceMeta
+	return "", errResourceMeta
 }
 
+// GetMetaVersion searches for version in meta data.
 func GetMetaVersion(meta map[string]any) string {
 	if plasma, ok := meta["plasma"].(map[string]any); ok {
 		version := plasma["version"]
@@ -163,7 +163,7 @@ func (r *Resource) UpdateVersion(version string) error {
 		return nil
 	}
 
-	return ErrResourceMeta
+	return errResourceMeta
 }
 
 // BuildResourceFromPath builds a new instance of Resource from the given path.
@@ -180,15 +180,17 @@ func BuildResourceFromPath(path, pathPrefix string) *Resource {
 	return resource
 }
 
+// ProcessResourcePath splits resource path onto platform, kind and role.
 func ProcessResourcePath(path string) (string, string, string, error) {
 	parts := strings.Split(path, "/")
 	if len(parts) > 3 {
 		return parts[0], parts[1], parts[3], nil
 	}
 
-	return "", "", "", ErrEmptyResourcePath
+	return "", "", "", errors.New("empty resource path")
 }
 
+// IsUpdatableKind checks if resource kind is in [Kinds] range.
 func IsUpdatableKind(kind string) bool {
 	if _, ok := Kinds[kind]; ok {
 		return true

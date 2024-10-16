@@ -17,10 +17,13 @@ import (
 )
 
 const (
+	invalidPasswordErrText = "invalid password"
+
 	rootPlatform    = "platform"
 	variablePattern = "(?:\\s|{|\\|)(%s)(?:\\s|}|\\|)"
 )
 
+// InventoryExcluded is list of excluded files and folders from inventory.
 var InventoryExcluded = []string{
 	".git",
 	".compose",
@@ -32,6 +35,7 @@ var InventoryExcluded = []string{
 	"__pycache__",
 }
 
+// Kinds are list of target resources.
 var Kinds = map[string]string{
 	"application": "applications",
 	"service":     "services",
@@ -55,22 +59,27 @@ type Variable struct {
 	isVault  bool
 }
 
+// GetPath returns path to variable file.
 func (v *Variable) GetPath() string {
 	return v.filepath
 }
 
+// GetPlatform returns variable platform.
 func (v *Variable) GetPlatform() string {
 	return v.platform
 }
 
+// GetName returns variable name.
 func (v *Variable) GetName() string {
 	return v.name
 }
 
+// GetHash returns variable [Variable.hash]
 func (v *Variable) GetHash() uint64 {
 	return v.hash
 }
 
+// IsVault tells if variable from vault.
 func (v *Variable) IsVault() bool {
 	return v.isVault
 }
@@ -285,6 +294,7 @@ func (i *Inventory) GetChangedVarsResources(modifiedFiles []string, comparisonDi
 	return resources, resourceVariablesMap, err
 }
 
+// GetChangedVariables fetches variables file from list, compare them with comparison dir files and fetches changed vars.
 func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, vaultpass string) (map[string]*Variable, map[string]*Variable, error) {
 	changedVariables := make(map[string]*Variable)
 	deletedVariables := make(map[string]*Variable)
@@ -417,6 +427,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, v
 	return changedVariables, deletedVariables, nil
 }
 
+// SearchVariablesAffectedResources crawls inventory to find if variables were used in [Inventory.SourceDir] resources.
 func (i *Inventory) SearchVariablesAffectedResources(variables map[string]*Variable) (*OrderedResourceMap, map[string]map[string]bool, error) {
 	resources := NewOrderedResourceMap()
 	resourceVariablesMap := make(map[string]map[string]bool)
@@ -815,6 +826,7 @@ func isVaultFile(path string) bool {
 	return filepath.Base(path) == "vault.yaml"
 }
 
+// LoadVariablesFile loads vars yaml file from path.
 func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any, error) {
 	var data map[string]any
 	var rawData []byte
@@ -828,7 +840,7 @@ func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any
 				return data, fmt.Errorf("error decrypting vault %s, password is blank", cleanPath)
 			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
 				return data, fmt.Errorf("error decrypting vault %s, invalid secret format", cleanPath)
-			} else if errDecrypt.Error() == "invalid password" {
+			} else if errDecrypt.Error() == invalidPasswordErrText {
 				return data, fmt.Errorf("invalid password for vault '%s'", cleanPath)
 			}
 
@@ -846,6 +858,7 @@ func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any
 	return data, err
 }
 
+// LoadVariablesFileFromBytes loads vars yaml file from bytes input.
 func LoadVariablesFileFromBytes(input []byte, vaultPassword string, isVault bool) (map[string]any, error) {
 	var data map[string]any
 	var rawData []byte
@@ -858,7 +871,7 @@ func LoadVariablesFileFromBytes(input []byte, vaultPassword string, isVault bool
 				return data, fmt.Errorf("error decrypting vaults, password is blank")
 			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
 				return data, fmt.Errorf("error decrypting vault, invalid secret format")
-			} else if errDecrypt.Error() == "invalid password" {
+			} else if errDecrypt.Error() == invalidPasswordErrText {
 				return data, fmt.Errorf("invalid password for vault")
 			}
 
@@ -873,6 +886,7 @@ func LoadVariablesFileFromBytes(input []byte, vaultPassword string, isVault bool
 	return data, err
 }
 
+// LoadYamlFileFromBytes loads yaml file from bytes input.
 func LoadYamlFileFromBytes(input []byte) (map[string]any, error) {
 	var data map[string]any
 	var rawData []byte
