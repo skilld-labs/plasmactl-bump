@@ -8,7 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/launchrctl/launchr/pkg/log"
+	"github.com/launchrctl/launchr"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -67,26 +68,25 @@ func (r *Resource) GetVersion() (string, error) {
 	if _, err := os.Stat(metaFile); err == nil {
 		data, errRead := os.ReadFile(filepath.Clean(metaFile))
 		if errRead != nil {
-			log.Debug("Failed to read meta file: %v", err)
+			launchr.Log().Debug(fmt.Sprintf("Failed to read meta file: %v", err))
 			return "", ErrResourceMeta
 		}
 
 		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
-			log.Debug("Failed to unmarshal meta file: %v", err)
+			launchr.Log().Debug(fmt.Sprintf("Failed to unmarshal meta file: %v", err))
 			return "", ErrResourceMeta
 		}
 
 		version := GetMetaVersion(meta)
 		if version == "" {
-			log.Debug("Empty meta file, return empty string as version")
+			launchr.Log().Debug("Empty meta file, return empty string as version")
 		}
 
 		return version, nil
 	}
 
-	log.Debug("Meta file (%s) is missing", metaFile)
 	return "", ErrResourceMeta
 }
 
@@ -116,7 +116,7 @@ func (r *Resource) GetBaseVersion() (string, string, error) {
 
 	split := strings.Split(version, "-")
 	if len(split) > 2 {
-		log.Warn("Resource %s has incorrect version format %s", version, r.GetName())
+		launchr.Term().Warning().Printfln("Resource %s has incorrect version format %s", version, r.GetName())
 	}
 
 	return split[0], version, nil
@@ -128,7 +128,7 @@ func (r *Resource) UpdateVersion(version string) error {
 	if _, err := os.Stat(metaFile); err == nil {
 		data, errRead := os.ReadFile(filepath.Clean(metaFile))
 		if errRead != nil {
-			log.Debug("Failed to read meta file: %v", errRead)
+			launchr.Log().Debug(fmt.Sprintf("Failed to read meta file: %v", errRead))
 			return errRead
 		}
 
@@ -136,7 +136,7 @@ func (r *Resource) UpdateVersion(version string) error {
 		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
-			log.Debug("Failed to unmarshal meta file: %v", errUnmarshal)
+			launchr.Log().Debug(fmt.Sprintf("Failed to unmarshal meta file: %v", errUnmarshal))
 			return errUnmarshal
 		}
 
@@ -150,20 +150,19 @@ func (r *Resource) UpdateVersion(version string) error {
 		yamlEncoder.SetIndent(2)
 		errEncode := yamlEncoder.Encode(&meta)
 		if errEncode != nil {
-			log.Debug("Failed to marshal meta file: %v", errEncode)
+			launchr.Log().Debug(fmt.Sprintf("Failed to marshal meta file: %v", errEncode))
 			return errEncode
 		}
 
 		errWrite := os.WriteFile(metaFile, b.Bytes(), 0600)
 		if errWrite != nil {
-			log.Debug("Failed to write meta file: %v", err)
+			launchr.Log().Debug(fmt.Sprintf("Failed to write meta file: %v", err))
 			return errWrite
 		}
 
 		return nil
 	}
 
-	log.Debug("Meta file (%s) is missing", metaFile)
 	return ErrResourceMeta
 }
 

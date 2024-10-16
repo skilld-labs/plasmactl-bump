@@ -4,7 +4,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/launchrctl/launchr/pkg/cli"
+	"github.com/launchrctl/launchr"
 )
 
 type TimelineItem interface {
@@ -62,10 +62,10 @@ func (i *TimelineResourcesItem) Merge(item TimelineItem) {
 }
 
 func (i *TimelineResourcesItem) Print() {
-	cli.Println("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
-	cli.Println("Resource List:")
+	launchr.Term().Printfln("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
+	launchr.Term().Printf("Resource List:\n")
 	for resource, _ := range i.resources {
-		cli.Println("- %s", resource)
+		launchr.Term().Printfln("- %s", resource)
 	}
 }
 
@@ -116,10 +116,10 @@ func (i *TimelineVariablesItem) Merge(item TimelineItem) {
 }
 
 func (i *TimelineVariablesItem) Print() {
-	cli.Println("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
-	cli.Println("Variable List:")
+	launchr.Term().Printfln("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
+	launchr.Term().Printf("Variable List:\n")
 	for variable, _ := range i.variables {
-		cli.Println("- %s", variable)
+		launchr.Term().Printfln("- %s", variable)
 	}
 }
 

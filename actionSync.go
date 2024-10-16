@@ -4,22 +4,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/launchrctl/launchr"
+
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/launchrctl/compose/compose"
 	"github.com/launchrctl/keyring"
-	"github.com/launchrctl/launchr/pkg/cli"
-	"github.com/launchrctl/launchr/pkg/log"
-	"gopkg.in/yaml.v3"
-
 	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
 )
 
@@ -67,9 +64,9 @@ func (s *SyncAction) Execute(username, password string) error {
 	}
 
 	sort.Strings(modifiedFiles)
-	log.Info("Build and Artifact diff:")
+	launchr.Term().Info().Printf("Build and Artifact diff:\n")
 	for _, file := range modifiedFiles {
-		log.Info("- %s", file)
+		launchr.Term().Info().Printfln("- %s", file)
 	}
 
 	err = s.ensureVaultpassExists()
@@ -96,7 +93,7 @@ func (s *SyncAction) prepareArtifact(username, password string) error {
 		if errors.Is(errGet, keyring.ErrEmptyPass) {
 			return errGet
 		} else if !errors.Is(errGet, keyring.ErrNotFound) {
-			log.Debug("%s", errGet)
+			launchr.Log().Debug(errGet.Error())
 			return errMalformedKeyring
 		}
 
@@ -105,7 +102,7 @@ func (s *SyncAction) prepareArtifact(username, password string) error {
 		ci.Password = password
 
 		if ci.Username == "" || ci.Password == "" {
-			fmt.Printf("Please add login and password for URL - %s\n", ci.URL)
+			launchr.Term().Printfln("Please add login and password for URL - %s\n", ci.URL)
 			err := keyring.RequestCredentialsFromTty(&ci)
 			if err != nil {
 				return err
@@ -145,7 +142,7 @@ func (s *SyncAction) getVaultPass(vaultpass string) (keyring.KeyValueItem, error
 		if errors.Is(errGet, keyring.ErrEmptyPass) {
 			return keyValueItem, errGet
 		} else if !errors.Is(errGet, keyring.ErrNotFound) {
-			log.Debug("%s", errGet)
+			launchr.Log().Debug(errGet.Error())
 			return keyValueItem, errMalformedKeyring
 		}
 
@@ -153,7 +150,7 @@ func (s *SyncAction) getVaultPass(vaultpass string) (keyring.KeyValueItem, error
 		keyValueItem.Value = vaultpass
 
 		if keyValueItem.Value == "" {
-			cli.Println("- Ansible vault password")
+			launchr.Term().Printf("- Ansible vault password\n")
 			err := keyring.RequestKeyValueFromTty(&keyValueItem)
 			if err != nil {
 				return keyValueItem, err
@@ -183,7 +180,7 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 	}
 
 	if len(timeline) == 0 {
-		log.Warn("No resources were found for propagation")
+		launchr.Term().Warning().Println("No resources were found for propagation")
 		return nil
 	}
 
@@ -230,7 +227,7 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 				prevHashTime = c.Author.When
 			}
 
-			//cli.Println("File didn't exist before, take current hash as version")
+			launchr.Log().Debug(fmt.Sprintf("File didn't exist before, take current hash as version (%s)", resourceMetaPath))
 			return storer.ErrStop
 		}
 
@@ -295,7 +292,6 @@ func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.R
 				currentHashTime = c.Author.When
 			}
 
-			//cli.Println("File didn't exist before, take current hash as version")
 			return storer.ErrStop
 		}
 
@@ -387,9 +383,7 @@ func (s *SyncAction) getResourcesMaps() (map[string]map[string]bool, map[string]
 		return resourcesMap, packagePathMap, err
 	}
 
-	// For now parse compose yaml, collect packages and their versions.
-	// It will allow us to prepare inventories for each entry.
-	plasmaCompose, err := composeLookup(os.DirFS(s.domainDir))
+	plasmaCompose, err := compose.Lookup(os.DirFS(s.domainDir))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -449,7 +443,7 @@ func (s *SyncAction) getResourcesMaps() (map[string]map[string]bool, map[string]
 			}
 
 			if baseVersion != buildVersion {
-				log.Debug("removing %s (%s) from %s as other version was used during composition", resourceName, baseVersion, conflictingNamespace)
+				launchr.Log().Debug(fmt.Sprintf("removing %s (%s) from %s as other version was used during composition", resourceName, baseVersion, conflictingNamespace))
 				delete(resourcesMap[conflictingNamespace], resourceName)
 			} else {
 				sameVersionNamespaces = append(sameVersionNamespaces, conflictingNamespace)
@@ -457,7 +451,7 @@ func (s *SyncAction) getResourcesMaps() (map[string]map[string]bool, map[string]
 		}
 
 		if len(sameVersionNamespaces) > 1 {
-			log.Debug("resolving additional strategies conflict for %s", resourceName)
+			launchr.Log().Debug(fmt.Sprintf("resolving additional strategies conflict for %s", resourceName))
 			var highest string
 			for i := len(priorityOrder) - 1; i >= 0; i-- {
 				if _, ok := resourcesMap[priorityOrder[i]]; ok {
@@ -479,27 +473,6 @@ func (s *SyncAction) getResourcesMaps() (map[string]map[string]bool, map[string]
 	return resourcesMap, packagePathMap, nil
 }
 
-// @TODO move to compose as service or leave?
-func composeLookup(fsys fs.FS) (*compose.YamlCompose, error) {
-	f, err := fs.ReadFile(fsys, "plasma-compose.yaml")
-	if err != nil {
-		return &compose.YamlCompose{}, errors.New("plasma-compose.yaml doesn't exist")
-	}
-
-	cfg, err := parseComposeYaml(f)
-	if err != nil {
-		return &compose.YamlCompose{}, errors.New("incorrect mapping for plasma-compose.yaml, ensure structure is correct")
-	}
-
-	return cfg, nil
-}
-
-func parseComposeYaml(input []byte) (*compose.YamlCompose, error) {
-	cfg := compose.YamlCompose{}
-	err := yaml.Unmarshal(input, &cfg)
-	return &cfg, err
-}
-
 func (s *SyncAction) getResourcesMapFrom(dir string) (map[string]bool, error) {
 	inv, err := sync.NewInventory(dir)
 	if err != nil {
@@ -515,30 +488,30 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 
 	allDiffResources := buildInv.GetChangedResources(modifiedFiles)
 	if allDiffResources.Len() > 0 {
-		cli.Println("\nResources diff between build and artifact")
+		launchr.Term().Info().Printfln("\nResources diff between build and artifact")
 		for _, key := range allDiffResources.OrderedKeys() {
 			r, ok := allDiffResources.Get(key)
 			if !ok {
 				continue
 			}
-			cli.Println("- %s", r.GetName())
+			launchr.Term().Info().Printfln("- %s", r.GetName())
 		}
 
-		cli.Println("\nGathering domain and package resources")
+		launchr.Term().Printfln("\nGathering domain and package resources")
 		resourcesMap, packagePathMap, err := s.getResourcesMaps()
 		if err != nil {
 			return timeline, nil, err
 		}
 
 		// Find new or updated resources in diff.
-		cli.Println("\nChecking domain resources")
+		launchr.Term().Printfln("\nChecking domain resources")
 		timeline, err = s.someCoolNameForResTimelineItems(allDiffResources, resourcesMap[domainNamespace], timeline, s.domainDir)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		// Iterate each package, find new or updated resources in diff.
-		cli.Println("\nChecking packages resources")
+		launchr.Term().Printfln("\nChecking packages resources")
 		for name, packagePath := range packagePathMap {
 			timeline, err = s.someCoolNameForResTimelineItems(allDiffResources, resourcesMap[name], timeline, packagePath)
 			if err != nil {
@@ -547,7 +520,7 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 		}
 	}
 
-	cli.Println("\nChecking variables change")
+	launchr.Term().Printfln("\nChecking variables change")
 	timeline, err := s.someCoolNameForVarTimelineItems(buildInv, modifiedFiles, timeline, s.domainDir)
 	if err != nil {
 		return nil, nil, err
@@ -591,7 +564,7 @@ func (s *SyncAction) someCoolNameForResTimelineItems(allUpdatedResources *sync.O
 
 			allUpdatedResources.Unset(buildResource.GetName())
 
-			cli.Println("- %s - new resource from %s", buildResource.GetName(), gitPath)
+			launchr.Term().Printfln("- %s - new resource from %s", buildResource.GetName(), gitPath)
 			continue
 		}
 
@@ -611,12 +584,12 @@ func (s *SyncAction) someCoolNameForResTimelineItems(allUpdatedResources *sync.O
 			timeline = sync.AddToTimeline(timeline, ti)
 			allUpdatedResources.Unset(buildResource.GetName())
 
-			cli.Println("- %s - updated resource from %s", buildResource.GetName(), gitPath)
+			launchr.Term().Printfln("- %s - updated resource from %s", buildResource.GetName(), gitPath)
 			continue
 		}
 
 		if buildFullVersion == artifactFullVersion {
-			log.Warn("resource %s is marked as updated, but version in build (%s) and artifact (%s) are identical, skipping.", resourceName, buildFullVersion, artifactFullVersion)
+			launchr.Term().Warning().Printfln("resource %s is marked as updated, but version in build (%s) and artifact (%s) are identical, skipping.", resourceName, buildFullVersion, artifactFullVersion)
 			allUpdatedResources.Unset(buildResource.GetName())
 		}
 	}
@@ -631,7 +604,7 @@ func (s *SyncAction) someCoolNameForVarTimelineItems(buildInv *sync.Inventory, m
 	}
 
 	if len(updatedVariables) == 0 && len(deletedVariables) == 0 {
-		cli.Println("- no variables were updated or deleted")
+		launchr.Term().Info().Printf("- no variables were updated or deleted\n")
 		return timeline, nil
 	}
 
@@ -647,7 +620,7 @@ func (s *SyncAction) someCoolNameForVarTimelineItems(buildInv *sync.Inventory, m
 		ti.AddVariable(variable)
 		timeline = sync.AddToTimeline(timeline, ti)
 
-		cli.Println("- %s - new or updated variable from %s", variable.GetName(), variable.GetPath())
+		launchr.Term().Printfln("- %s - new or updated variable from %s", variable.GetName(), variable.GetPath())
 	}
 
 	for _, variable := range deletedVariables {
@@ -658,7 +631,7 @@ func (s *SyncAction) someCoolNameForVarTimelineItems(buildInv *sync.Inventory, m
 		ti.AddVariable(variable)
 		timeline = sync.AddToTimeline(timeline, ti)
 
-		cli.Println("- %s - deleted variable from %s", variable.GetName(), variable.GetPath())
+		launchr.Term().Printfln("- %s - deleted variable from %s", variable.GetName(), variable.GetPath())
 	}
 
 	return timeline, nil
@@ -669,10 +642,9 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 	toPropagate := sync.NewOrderedResourceMap()
 
 	sync.SortTimeline(timeline)
-	cli.Println("\nIterating timeline:")
+	launchr.Term().Printfln("\nIterating timeline:")
 	for _, item := range timeline {
-		log.Debug("ver: %s, date: %s, commit: %s", item.GetVersion(), item.GetDate(), item.GetCommit())
-
+		launchr.Log().Debug(fmt.Sprintf("ver: %s, date: %s, commit: %s", item.GetVersion(), item.GetDate(), item.GetCommit()))
 		switch i := item.(type) {
 		case *sync.TimelineResourcesItem:
 			for _, r := range i.GetResources() {
@@ -683,7 +655,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 				//	delete(resourceVersionMap, r.GetName())
 				//}
 
-				cli.Println("gathering %s deps:", r.GetName())
+				launchr.Term().Printfln("collecting %s deps:", r.GetName())
 				err := s.propagateResourceDeps(r, i.GetVersion(), toPropagate, buildInv.GetRequiredMap(), resourceVersionMap)
 				if err != nil {
 					return toPropagate, resourceVersionMap, err
@@ -703,12 +675,12 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 			if err != nil {
 				return toPropagate, resourceVersionMap, err
 			}
-			cli.Println("vars:")
+			launchr.Term().Printfln("vars:")
 			for variable := range i.GetVariables() {
-				cli.Println("- %s", variable)
+				launchr.Term().Printfln("- %s", variable)
 			}
 
-			cli.Println("gathering deps:")
+			launchr.Term().Printfln("collecting deps:")
 			version := i.GetVersion()
 			for _, key := range resources.OrderedKeys() {
 				r, ok := resources.Get(key)
@@ -726,7 +698,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 }
 
 func (s *SyncAction) copyHistory(history *sync.OrderedResourceMap) error {
-	cli.Println("Copying history from artifact:")
+	launchr.Term().Printfln("Copying history from artifact:")
 	for _, key := range history.OrderedKeys() {
 		r, ok := history.Get(key)
 		if !ok {
@@ -741,7 +713,7 @@ func (s *SyncAction) copyHistory(history *sync.OrderedResourceMap) error {
 				return err
 			}
 
-			cli.Println("- copy %s - %s", r.GetName(), artifactVersion)
+			launchr.Term().Printfln("- copy %s - %s", r.GetName(), artifactVersion)
 			if s.dryRun {
 				continue
 			}
@@ -769,13 +741,13 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedResourceMap, resou
 		}
 
 		if currentVersion == "" {
-			log.Debug("resource %s has no version", r.GetName())
+			launchr.Term().Warning().Printfln("resource %s has no version", r.GetName())
 			stopPropagation = true
 		}
 
 		newVersion := s.composeVersion(currentVersion, resourceVersionMap[r.GetName()])
 		if currentVersion == resourceVersionMap[r.GetName()] {
-			log.Debug("- skip %s (identical versions)", r.GetName())
+			launchr.Term().Warning().Printfln("- skip %s (identical versions)", r.GetName())
 			continue
 		}
 
@@ -793,12 +765,12 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedResourceMap, resou
 	}
 
 	if len(updateMap) == 0 {
-		cli.Println("No version to propagate")
+		launchr.Term().Printfln("No version to propagate")
 		return nil
 	}
 
 	sort.Strings(sortList)
-	cli.Println("Propagating versions:")
+	launchr.Term().Printfln("Propagating versions:")
 	for _, key := range sortList {
 		val := updateMap[key]
 
@@ -806,7 +778,7 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedResourceMap, resou
 		currentVersion := val["current"]
 		newVersion := val["new"]
 
-		cli.Println("- %s from %s to %s", r.GetName(), currentVersion, newVersion)
+		launchr.Term().Printfln("- %s from %s to %s", r.GetName(), currentVersion, newVersion)
 		if s.dryRun {
 			continue
 		}
@@ -820,34 +792,34 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedResourceMap, resou
 	return nil
 }
 
-func (s *SyncAction) printResources(message string, resources *sync.OrderedResourceMap) {
-	if message != "" {
-		log.Info(message)
-	}
-
-	for _, key := range resources.OrderedKeys() {
-		value, _ := resources.Get(key)
-		log.Info("- %s", value.GetName())
-	}
-}
-
-func (s *SyncAction) printVariablesInfo(rvm map[string]map[string]bool) {
-	if len(rvm) == 0 {
-		return
-	}
-
-	info := make(map[string][]string)
-	for resourceName, vars := range rvm {
-		for variable := range vars {
-			info[variable] = append(info[variable], resourceName)
-		}
-	}
-
-	log.Info("Modified variables in diff (group_vars and vaults):")
-	for k, v := range info {
-		log.Info("- %s used in: %s", k, strings.Join(v, ", "))
-	}
-}
+//func (s *SyncAction) printResources(message string, resources *sync.OrderedResourceMap) {
+//	if message != "" {
+//		log.Info(message)
+//	}
+//
+//	for _, key := range resources.OrderedKeys() {
+//		value, _ := resources.Get(key)
+//		log.Info("- %s", value.GetName())
+//	}
+//}
+//
+//func (s *SyncAction) printVariablesInfo(rvm map[string]map[string]bool) {
+//	if len(rvm) == 0 {
+//		return
+//	}
+//
+//	info := make(map[string][]string)
+//	for resourceName, vars := range rvm {
+//		for variable := range vars {
+//			info[variable] = append(info[variable], resourceName)
+//		}
+//	}
+//
+//	log.Info("Modified variables in diff (group_vars and vaults):")
+//	for k, v := range info {
+//		log.Info("- %s used in: %s", k, strings.Join(v, ", "))
+//	}
+//}
 
 func (s *SyncAction) propagateResourceDeps(resource *sync.Resource, version string, toPropagate *sync.OrderedResourceMap, resourcesGraph map[string]map[string]bool, resourceVersionMap map[string]string) error {
 	if items, ok := resourcesGraph[resource.GetName()]; ok {
@@ -872,7 +844,7 @@ func (s *SyncAction) propagateDepsRecursively(resource *sync.Resource, version s
 		toPropagate.Set(resource.GetName(), resource)
 	}
 	resourceVersionMap[resource.GetName()] = version
-	cli.Println("- %s", resource.GetName())
+	launchr.Term().Printfln("- %s", resource.GetName())
 
 	if items, ok := resourcesGraph[resource.GetName()]; ok {
 		for resourceName := range items {

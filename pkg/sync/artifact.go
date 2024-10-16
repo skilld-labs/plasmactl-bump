@@ -12,14 +12,14 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/launchrctl/launchr/pkg/cli"
-	"github.com/launchrctl/launchr/pkg/log"
+	"github.com/launchrctl/launchr"
 
 	"github.com/skilld-labs/plasmactl-bump/pkg/repository"
 )
 
 const (
-	dirPermissions = 0755
+	ArtifactTruncateLength = 7
+	dirPermissions         = 0755
 )
 
 var (
@@ -59,11 +59,11 @@ func (a *Artifact) Get(username, password string) error {
 		return err
 	}
 
-	log.Info("Repository name: %s", repoName)
+	launchr.Term().Info().Printfln("Repository name: %s", repoName)
 	var archivePath string
 	if a.override != "" {
 		comparisonRef := a.override
-		log.Info("OVERRIDDEN_COMPARISON_REF has been set: %s", a.override)
+		launchr.Term().Info().Printfln("OVERRIDDEN_COMPARISON_REF has been set: %s", a.override)
 		artifactFile, artifactPath := a.buildArtifactPaths(repoName, comparisonRef)
 		err = a.downloadArtifact(username, password, artifactFile, artifactPath, repoName)
 		if err != nil {
@@ -86,9 +86,9 @@ func (a *Artifact) Get(username, password string) error {
 			}
 
 			commit := []rune(comparisonHash.String())
-			comparisonRef := string(commit[:7])
+			comparisonRef := string(commit[:ArtifactTruncateLength])
 
-			log.Info("Bump commit identified: %s", comparisonRef)
+			launchr.Term().Info().Printfln("Bump commit identified: %s", comparisonRef)
 			artifactFile, artifactPath := a.buildArtifactPaths(repoName, comparisonRef)
 			errDownload := a.downloadArtifact(username, password, artifactFile, artifactPath, repoName)
 			if errDownload != nil {
@@ -110,7 +110,7 @@ func (a *Artifact) Get(username, password string) error {
 		}
 	}
 
-	cli.Println("Processing...")
+	launchr.Term().Printf("Processing...\n")
 	err = a.prepareComparisonDir(a.comparisonDir)
 	if err != nil {
 		return err
@@ -143,16 +143,16 @@ func (a *Artifact) prepareComparisonDir(path string) error {
 }
 
 func (a *Artifact) downloadArtifact(username, password, artifactFile, artifactPath, repo string) error {
-	cli.Println("Attempting to get %s from local storage", artifactFile)
+	launchr.Term().Printfln("Attempting to get %s from local storage", artifactFile)
 	_, errExists := os.Stat(artifactPath)
 	if errExists == nil {
-		cli.Println("Local artifact found")
+		launchr.Term().Printf("Local artifact found\n")
 		return nil
 	}
 
-	cli.Println("Local artifact %s not found", artifactFile)
+	launchr.Term().Printf("Local artifact %s not found", artifactFile)
 	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", a.artifactsRepositoryURL, repo, artifactFile)
-	cli.Println("Attempting to download artifact: %s", url)
+	launchr.Term().Printf("Attempting to download artifact: %s", url)
 
 	err := os.MkdirAll(a.artifactsDir, dirPermissions)
 	if err != nil {
@@ -166,7 +166,7 @@ func (a *Artifact) downloadArtifact(username, password, artifactFile, artifactPa
 
 	defer func() {
 		if err = out.Close(); err != nil {
-			cli.Println("error closing stream")
+			launchr.Term().Error().Printf("error closing stream\n")
 		}
 	}()
 
@@ -182,7 +182,7 @@ func (a *Artifact) downloadArtifact(username, password, artifactFile, artifactPa
 
 	defer func() {
 		if err = resp.Body.Close(); err != nil {
-			cli.Println("error closing stream")
+			launchr.Term().Error().Printf("error closing stream\n")
 		}
 	}()
 
@@ -190,7 +190,7 @@ func (a *Artifact) downloadArtifact(username, password, artifactFile, artifactPa
 	if statusCode != http.StatusOK {
 		errRemove := os.Remove(artifactPath)
 		if errRemove != nil {
-			log.Debug("Error during removing invalid artifact: %s", errRemove.Error())
+			launchr.Log().Debug(fmt.Sprintf("Error during removing invalid artifact: %s", errRemove.Error()))
 		}
 
 		if statusCode == http.StatusUnauthorized {

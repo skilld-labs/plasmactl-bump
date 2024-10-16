@@ -9,7 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/launchrctl/launchr/pkg/log"
+	"github.com/launchrctl/launchr"
+
 	vault "github.com/sosedoff/ansible-vault-go"
 	"github.com/stevenle/topsort"
 	"gopkg.in/yaml.v3"
@@ -465,7 +466,7 @@ func (i *Inventory) SearchVariablesAffectedResources(variables map[string]*Varia
 			continue
 		}
 		if val, ok := resources.Get(resource.GetName()); !ok {
-			log.Debug("Processing resource %s", resource.GetName())
+			launchr.Log().Debug(fmt.Sprintf("Processing resource %s", resource.GetName()))
 			resources.Set(resource.GetName(), resource)
 		} else {
 			resource = val
@@ -681,14 +682,14 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 		sourcePath := filepath.Clean(filepath.Join(cr.rootDir, path))
 		sourceVariables, errRead := os.ReadFile(sourcePath)
 		if errRead != nil {
-			log.Debug("Error reading YAML file: %s\n", errRead)
+			launchr.Log().Debug(fmt.Sprintf("Error reading YAML file: %s\n", errRead))
 			return variables, errRead
 		}
 
 		var sourceData map[string]any
 		errMarshal := yaml.Unmarshal(sourceVariables, &sourceData)
 		if errMarshal != nil {
-			log.Debug("Unable to unmarshal YAML file: %s", errMarshal)
+			launchr.Log().Debug(fmt.Sprintf("Unable to unmarshal YAML file: %s", errMarshal))
 			return variables, errRead
 		}
 
@@ -755,7 +756,7 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 		sourcePath := filepath.Clean(filepath.Join(cr.rootDir, file))
 		f, err := os.Open(sourcePath)
 		if err != nil {
-			log.Debug("Error opening file %s: %v", file, err)
+			launchr.Log().Debug(fmt.Sprintf("Error opening file %s: %v", file, err))
 			return err
 		}
 
@@ -795,7 +796,7 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 		}
 
 		if err = s.Err(); err != nil {
-			log.Debug("Error reading file %s: %v", file, err)
+			launchr.Log().Debug(fmt.Sprintf("Error reading file %s: %v", file, err))
 			continue
 		}
 

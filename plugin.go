@@ -4,29 +4,30 @@ package plasmactlbump
 import (
 	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr"
-	"github.com/launchrctl/launchr/pkg/log"
 	"github.com/spf13/cobra"
+
+	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
 )
 
 func init() {
 	launchr.RegisterPlugin(&Plugin{})
 }
 
-// Plugin is launchr plugin providing bump action.
+// Plugin is [launchr.Plugin] plugin providing bump functionality.
 type Plugin struct {
 	b   BumpAction
 	k   keyring.Keyring
 	cfg launchr.Config
 }
 
-// PluginInfo implements launchr.Plugin interface.
+// PluginInfo implements [launchr.Plugin] interface.
 func (p *Plugin) PluginInfo() launchr.PluginInfo {
 	return launchr.PluginInfo{
 		Weight: 10,
 	}
 }
 
-// OnAppInit implements launchr.Plugin interface.
+// OnAppInit implements [launchr.Plugin] interface.
 func (p *Plugin) OnAppInit(app launchr.App) error {
 	app.GetService(&p.cfg)
 	app.GetService(&p.k)
@@ -37,7 +38,7 @@ func (p *Plugin) OnAppInit(app launchr.App) error {
 
 // CobraAddCommands implements launchr.CobraPlugin interface to provide bump functionality.
 func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
-	var sync bool
+	var doSync bool
 	var dryRun bool
 	var override string
 	var username string
@@ -52,7 +53,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 			// Don't show usage help on a runtime error.
 			cmd.SilenceUsage = true
 
-			if !sync {
+			if !doSync {
 				return p.b.Bump(last)
 			}
 
@@ -75,7 +76,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 		},
 	}
 
-	bumpCmd.Flags().BoolVarP(&sync, "sync", "s", false, "Propagate versions of updated components to their dependencies")
+	bumpCmd.Flags().BoolVarP(&doSync, "sync", "s", false, "Propagate versions of updated components to their dependencies")
 	bumpCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate propagate without doing anything")
 	bumpCmd.Flags().StringVar(&override, "override", "", "Override comparison artifact name (commit)")
 	bumpCmd.Flags().StringVar(&username, "username", "", "Username for artifact repository")
@@ -88,10 +89,10 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 }
 
 func truncateOverride(override string) string {
-	truncateLength := 7
+	truncateLength := sync.ArtifactTruncateLength
 
 	if len(override) > truncateLength {
-		log.Info("Truncated override value to %d chars: %s", truncateLength, override)
+		launchr.Term().Info().Printfln("Truncated override value to %d chars: %s", truncateLength, override)
 		return override[:truncateLength]
 	}
 	return override

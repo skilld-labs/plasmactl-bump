@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/launchrctl/launchr"
-	"github.com/launchrctl/launchr/pkg/cli"
-
 	"github.com/skilld-labs/plasmactl-bump/pkg/repository"
 	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
 )
@@ -48,15 +46,14 @@ func (k *bumpService) ServiceInfo() launchr.ServiceInfo {
 }
 
 func printMemo() {
-	fmt.Println("List of unversioned files:")
+	launchr.Log().Info("List of non-versioned files:")
 	for k := range unversionedFiles {
-		fmt.Println(k)
+		launchr.Log().Info(k)
 	}
-	fmt.Print("\n")
 }
 
 func (k *bumpService) Bump(last bool) error {
-	fmt.Println("Bump updated versions...")
+	launchr.Term().Println("Bump updated versions...")
 	printMemo()
 
 	bumper, err := repository.NewBumper()
@@ -80,13 +77,13 @@ func (k *bumpService) Bump(last bool) error {
 
 	version, err := bumper.GetLastCommitShortHash()
 	if err != nil {
-		fmt.Println("Can't retrieve commit hash")
+		launchr.Log().Error("Can't retrieve commit hash")
 		return err
 	}
 
 	err = k.updateResources(resources, version)
 	if err != nil {
-		fmt.Println("There is an error during resources update")
+		launchr.Log().Error("There is an error during resources update")
 		return err
 	}
 
@@ -118,7 +115,7 @@ func (k *bumpService) collectResources(files []string) map[string]*sync.Resource
 					continue
 				}
 
-				fmt.Printf("Processing resource %s\n", resource.GetName())
+				launchr.Term().Printfln("Processing resource %s", resource.GetName())
 				resources[resource.GetName()] = resource
 			}
 		}
@@ -133,14 +130,14 @@ func (k *bumpService) updateResources(resources map[string]*sync.Resource, versi
 		return nil
 	}
 
-	cli.Println("Updating versions:")
+	launchr.Term().Printf("Updating versions:\n")
 	for _, r := range resources {
 		currentVersion, err := r.GetVersion()
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("- %s from %s to %s\n", r.GetName(), currentVersion, version)
+		launchr.Term().Printfln("- %s from %s to %s", r.GetName(), currentVersion, version)
 		err = r.UpdateVersion(version)
 		if err != nil {
 			return err
