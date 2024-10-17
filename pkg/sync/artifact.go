@@ -154,9 +154,9 @@ func (a *Artifact) downloadArtifact(username, password, artifactFile, artifactPa
 		return nil
 	}
 
-	launchr.Term().Printf("Local artifact %s not found", artifactFile)
+	launchr.Term().Printfln("Local artifact %s not found", artifactFile)
 	url := fmt.Sprintf("%s/repository/%s-artifacts/%s", a.artifactsRepositoryURL, repo, artifactFile)
-	launchr.Term().Printf("Attempting to download artifact: %s", url)
+	launchr.Term().Printfln("Attempting to download artifact: %s", url)
 
 	err := os.MkdirAll(a.artifactsDir, dirPermissions)
 	if err != nil {
