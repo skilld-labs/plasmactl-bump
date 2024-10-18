@@ -40,6 +40,7 @@ func (p *Plugin) OnAppInit(app launchr.App) error {
 func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 	var doSync bool
 	var dryRun bool
+	var listImpacted bool
 	var override string
 	var username string
 	var password string
@@ -68,6 +69,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 				artifactsRepoURL: "https://repositories.skilld.cloud",
 
 				dryRun:           dryRun,
+				listImpacted:     listImpacted,
 				vaultPass:        vaultpass,
 				artifactOverride: truncateOverride(override),
 			}
@@ -78,6 +80,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 
 	bumpCmd.Flags().BoolVarP(&doSync, "sync", "s", false, "Propagate versions of updated components to their dependencies")
 	bumpCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate propagate without doing anything")
+	bumpCmd.Flags().BoolVar(&listImpacted, "list-impacted-resources", false, "Print list of impacted resources")
 	bumpCmd.Flags().StringVar(&override, "override", "", "Override comparison artifact name (commit)")
 	bumpCmd.Flags().StringVar(&username, "username", "", "Username for artifact repository")
 	bumpCmd.Flags().StringVar(&password, "password", "", "Password for artifact repository")

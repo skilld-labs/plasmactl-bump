@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/launchrctl/launchr"
-
 	vault "github.com/sosedoff/ansible-vault-go"
 	"github.com/stevenle/topsort"
 	"gopkg.in/yaml.v3"

@@ -10,13 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/launchrctl/launchr"
-
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/launchrctl/compose/compose"
 	"github.com/launchrctl/keyring"
+	"github.com/launchrctl/launchr"
+
+	"github.com/skilld-labs/plasmactl-bump/pkg/repository"
 	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
 )
 
@@ -47,6 +49,7 @@ type SyncAction struct {
 
 	// options.
 	dryRun           bool
+	listImpacted     bool
 	vaultPass        string
 	artifactOverride string
 }
@@ -66,7 +69,7 @@ func (s *SyncAction) Execute(username, password string) error {
 	sort.Strings(modifiedFiles)
 	launchr.Term().Info().Printf("Build and Artifact diff:\n")
 	for _, file := range modifiedFiles {
-		launchr.Term().Info().Printfln("- %s", file)
+		launchr.Term().Printfln("- %s", file)
 	}
 
 	err = s.ensureVaultpassExists()
@@ -196,6 +199,10 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 		return err
 	}
 
+	if s.listImpacted {
+		s.printResources("List of impacted resources:", toPropagate)
+	}
+
 	// update resources.
 	err = s.updateResources(toPropagate, resourceVersionMap)
 
@@ -203,11 +210,14 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 }
 
 func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath string, repo *git.Repository) (*sync.TimelineResourcesItem, error) {
-	ref, err := repo.Head()
+	ref, err := s.ensureResourceIsVersioned(resourceVersion, resourceMetaPath, repo)
 	if err != nil {
 		return nil, err
 	}
 
+	//@TODO use git log -S'value' -- path/to/file instead of full history search?
+	//  or git log -- path/to/file
+	//  go-git log -- filepath looks abysmally slow, to research.
 	// start from the latest commit and iterate to the past
 	cIter, err := repo.Log(&git.LogOptions{From: ref.Hash()})
 	if err != nil {
@@ -216,6 +226,7 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 
 	var prevHash string
 	var prevHashTime time.Time
+	var commitMessage string
 	err = cIter.ForEach(func(c *object.Commit) error {
 		file, err := c.File(resourceMetaPath)
 		if err != nil {
@@ -253,6 +264,7 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 
 		prevHashTime = c.Author.When
 		prevHash = c.Hash.String()
+		commitMessage = c.Message
 		return nil
 	})
 
@@ -260,20 +272,63 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 		return nil, err
 	}
 
+	if commitMessage != repository.BumpMessage {
+		launchr.Term().Warning().Printfln("Non-bump version selected for %s resource", resourceMetaPath)
+	}
+
 	tri := sync.NewTimelineResourcesItem(resourceVersion, prevHash, prevHashTime)
 
 	return tri, err
 }
 
-func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
-	// @TODO look for several vars during iteration?
-	// @TODO ensure value we search existed before
-
+func (s *SyncAction) ensureResourceIsVersioned(resourceVersion, resourceMetaPath string, repo *git.Repository) (*plumbing.Reference, error) {
 	ref, err := repo.Head()
 	if err != nil {
 		return nil, err
 	}
 
+	headCommit, err := repo.CommitObject(ref.Hash())
+	if err != nil {
+		return nil, err
+	}
+	headMeta, err := headCommit.File(resourceMetaPath)
+	if err != nil {
+		return nil, fmt.Errorf("meta %s doesn't exist in head commit", resourceMetaPath)
+	}
+
+	reader, err := headMeta.Blob.Reader()
+	if err != nil {
+		return nil, err
+	}
+
+	contents, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	metaFile, err := sync.LoadYamlFileFromBytes(contents)
+	if err != nil {
+		return nil, err
+	}
+
+	headVersion := sync.GetMetaVersion(metaFile)
+	if resourceVersion != headVersion {
+		return nil, fmt.Errorf("HEAD version of %s doesn't match real version", resourceMetaPath)
+	}
+
+	return ref, nil
+}
+
+func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
+	// @TODO look for several vars during iteration?
+	ref, err := s.ensureVariableIsVersioned(variable, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	//@TODO use git log -S'value' -- path/to/file instead of full history search?
+	//  or git log -- path/to/file
+	//  go-git log -- filepath looks abysmally slow, to research.
 	cIter, err := repo.Log(&git.LogOptions{From: ref.Hash()})
 	if err != nil {
 		return nil, err
@@ -295,8 +350,14 @@ func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.R
 			return storer.ErrStop
 		}
 
-		reader, _ := file.Blob.Reader()
-		contents, _ := io.ReadAll(reader)
+		reader, err := file.Blob.Reader()
+		if err != nil {
+			return err
+		}
+		contents, err := io.ReadAll(reader)
+		if err != nil {
+			return err
+		}
 		varFile, err := sync.LoadVariablesFileFromBytes(contents, s.vaultPass, variable.IsVault())
 		if err != nil {
 			return err
@@ -312,7 +373,6 @@ func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.R
 		if variable.GetHash() != prevVarHash {
 			//cli.Println("Variable exists, hashes don't match, stop iterating")
 			return storer.ErrStop
-
 		}
 
 		currentHash = c.Hash.String()
@@ -323,6 +383,47 @@ func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.R
 	tvi := sync.NewTimelineVariablesItem(currentHash[:13], currentHash, currentHashTime)
 
 	return tvi, err
+}
+
+func (s *SyncAction) ensureVariableIsVersioned(variable *sync.Variable, repo *git.Repository) (*plumbing.Reference, error) {
+	ref, err := repo.Head()
+	if err != nil {
+		return nil, err
+	}
+
+	headCommit, err := repo.CommitObject(ref.Hash())
+	if err != nil {
+		return nil, err
+	}
+	headVarsFile, err := headCommit.File(variable.GetPath())
+	if err != nil {
+		return nil, fmt.Errorf("variable %s file %s doesn't exist in HEAD", variable.GetName(), variable.GetPath())
+	}
+
+	reader, err := headVarsFile.Blob.Reader()
+	if err != nil {
+		return nil, err
+	}
+	contents, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+	varFile, err := sync.LoadVariablesFileFromBytes(contents, s.vaultPass, variable.IsVault())
+	if err != nil {
+		return nil, err
+	}
+
+	headVar, exists := varFile[variable.GetName()]
+	if !exists {
+		return nil, fmt.Errorf("variable %s from %s doesn't exist in HEAD", variable.GetName(), variable.GetPath())
+	}
+
+	headVarHash := sync.HashString(fmt.Sprint(headVar))
+	if variable.GetHash() != headVarHash {
+		return nil, fmt.Errorf("HEAD variable %s from %s doesn't much real version", variable.GetName(), variable.GetPath())
+	}
+
+	return ref, nil
 }
 
 func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
@@ -338,12 +439,13 @@ func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git
 		return nil, err
 	}
 
+	// Ensure variable existed in first place before propagating.
+	varExisted := false
 	var currentHash string
 	var currentHashTime time.Time
 	err = cIter.ForEach(func(c *object.Commit) error {
 		file, err := c.File(variable.GetPath())
 		if errors.Is(err, object.ErrFileNotFound) {
-			//cli.Println("File doesn't exist, continue searching for file with variable")
 			currentHash = c.Hash.String()
 			currentHashTime = c.Author.When
 			return nil
@@ -358,15 +460,18 @@ func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git
 
 		_, exists := varFile[variable.GetName()]
 		if !exists {
-			//cli.Println("Variable doesn't exist %s, continue search", currentHash)
 			currentHash = c.Hash.String()
 			currentHashTime = c.Author.When
 			return nil
 		}
 
-		//cli.Println("Variable exists, stop search")
+		varExisted = true
 		return storer.ErrStop
 	})
+
+	if !varExisted {
+		return nil, fmt.Errorf("variable %s from %s never existed in repository, please ensure your build is correct", variable.GetName(), variable.GetPath())
+	}
 
 	tvi := sync.NewTimelineVariablesItem(currentHash[:13], currentHash, currentHashTime)
 
@@ -491,30 +596,32 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 
 	allDiffResources := buildInv.GetChangedResources(modifiedFiles)
 	if allDiffResources.Len() > 0 {
-		launchr.Term().Info().Printfln("\nResources diff between build and artifact")
+		launchr.Term().Println()
+		launchr.Term().Info().Printfln("Resources diff between build and artifact")
 		for _, key := range allDiffResources.OrderedKeys() {
 			r, ok := allDiffResources.Get(key)
 			if !ok {
 				continue
 			}
-			launchr.Term().Info().Printfln("- %s", r.GetName())
+			launchr.Term().Printfln("- %s", r.GetName())
 		}
 
-		launchr.Term().Printfln("\nGathering domain and package resources")
+		launchr.Term().Println()
+		launchr.Term().Info().Printfln("Gathering domain and package resources")
 		resourcesMap, packagePathMap, err := s.getResourcesMaps()
 		if err != nil {
 			return timeline, nil, err
 		}
 
 		// Find new or updated resources in diff.
-		launchr.Term().Printfln("\nChecking domain resources")
+		launchr.Term().Info().Printfln("Checking domain resources")
 		timeline, err = s.someCoolNameForResTimelineItems(allDiffResources, resourcesMap[domainNamespace], timeline, s.domainDir)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		// Iterate each package, find new or updated resources in diff.
-		launchr.Term().Printfln("\nChecking packages resources")
+		launchr.Term().Info().Printfln("Checking packages resources")
 		for name, packagePath := range packagePathMap {
 			timeline, err = s.someCoolNameForResTimelineItems(allDiffResources, resourcesMap[name], timeline, packagePath)
 			if err != nil {
@@ -523,7 +630,7 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 		}
 	}
 
-	launchr.Term().Printfln("\nChecking variables change")
+	launchr.Term().Info().Printfln("Checking variables change")
 	timeline, err := s.someCoolNameForVarTimelineItems(buildInv, modifiedFiles, timeline, s.domainDir)
 	if err != nil {
 		return nil, nil, err
@@ -607,7 +714,7 @@ func (s *SyncAction) someCoolNameForVarTimelineItems(buildInv *sync.Inventory, m
 	}
 
 	if len(updatedVariables) == 0 && len(deletedVariables) == 0 {
-		launchr.Term().Info().Printf("- no variables were updated or deleted\n")
+		launchr.Term().Printf("- no variables were updated or deleted\n")
 		return timeline, nil
 	}
 
@@ -645,7 +752,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 	toPropagate := sync.NewOrderedResourceMap()
 
 	sync.SortTimeline(timeline)
-	launchr.Term().Printfln("\nIterating timeline:")
+	launchr.Term().Info().Printfln("Iterating timeline:")
 	for _, item := range timeline {
 		launchr.Log().Debug(fmt.Sprintf("ver: %s, date: %s, commit: %s", item.GetVersion(), item.GetDate(), item.GetCommit()))
 		switch i := item.(type) {
@@ -658,7 +765,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 				//	delete(resourceVersionMap, r.GetName())
 				//}
 
-				launchr.Term().Printfln("collecting %s deps:", r.GetName())
+				launchr.Term().Info().Printfln("collecting %s dependencies:", r.GetName())
 				err := s.propagateResourceDeps(r, i.GetVersion(), toPropagate, buildInv.GetRequiredMap(), resourceVersionMap)
 				if err != nil {
 					return toPropagate, resourceVersionMap, err
@@ -683,7 +790,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 				launchr.Term().Printfln("- %s", variable)
 			}
 
-			launchr.Term().Printfln("collecting deps:")
+			launchr.Term().Info().Printfln("collecting dependencies:")
 			version := i.GetVersion()
 			for _, key := range resources.OrderedKeys() {
 				r, ok := resources.Get(key)
@@ -701,7 +808,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 }
 
 func (s *SyncAction) copyHistory(history *sync.OrderedResourceMap) error {
-	launchr.Term().Printfln("Copying history from artifact:")
+	launchr.Term().Info().Printfln("Copying history from artifact:")
 	for _, key := range history.OrderedKeys() {
 		r, ok := history.Get(key)
 		if !ok {
@@ -738,7 +845,7 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedResourceMap, resou
 
 	for _, key := range toPropagate.OrderedKeys() {
 		r, _ := toPropagate.Get(key)
-		currentVersion, errVersion := r.GetVersion()
+		baseVersion, currentVersion, errVersion := r.GetBaseVersion()
 		if errVersion != nil {
 			return errVersion
 		}
@@ -749,7 +856,8 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedResourceMap, resou
 		}
 
 		newVersion := s.composeVersion(currentVersion, resourceVersionMap[r.GetName()])
-		if currentVersion == resourceVersionMap[r.GetName()] {
+		if baseVersion == resourceVersionMap[r.GetName()] {
+			launchr.Log().Debug(fmt.Sprintf("base: %s, current:%s, propagate: %s, new: %s", baseVersion, currentVersion, resourceVersionMap[r.GetName()], newVersion))
 			launchr.Term().Warning().Printfln("- skip %s (identical versions)", r.GetName())
 			continue
 		}
@@ -773,7 +881,7 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedResourceMap, resou
 	}
 
 	sort.Strings(sortList)
-	launchr.Term().Printfln("Propagating versions:")
+	launchr.Term().Info().Printfln("Propagating versions:")
 	for _, key := range sortList {
 		val := updateMap[key]
 
@@ -795,16 +903,17 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedResourceMap, resou
 	return nil
 }
 
-//func (s *SyncAction) printResources(message string, resources *sync.OrderedResourceMap) {
-//	if message != "" {
-//		log.Info(message)
-//	}
-//
-//	for _, key := range resources.OrderedKeys() {
-//		value, _ := resources.Get(key)
-//		log.Info("- %s", value.GetName())
-//	}
-//}
+func (s *SyncAction) printResources(message string, resources *sync.OrderedResourceMap) {
+	if message != "" {
+		launchr.Term().Info().Println(message)
+	}
+
+	for _, key := range resources.OrderedKeys() {
+		value, _ := resources.Get(key)
+		launchr.Term().Printfln("- %s", value.GetName())
+	}
+}
+
 //
 //func (s *SyncAction) printVariablesInfo(rvm map[string]map[string]bool) {
 //	if len(rvm) == 0 {
