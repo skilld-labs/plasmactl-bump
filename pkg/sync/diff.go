@@ -1,4 +1,4 @@
-package plasmactlbump
+package sync
 
 import (
 	"io"
@@ -9,27 +9,8 @@ import (
 	"github.com/cespare/xxhash/v2"
 )
 
-var excludeSubDirs = []string{
-	".git",
-	".compose",
-	".plasmactl",
-	".gitlab-ci.yml",
-	"ansible_collections",
-	".gitlab-ci.yml",
-	"scripts/ci/.gitlab-ci.platform.yaml",
-	"venv",
-}
-
-// GetDiffFiles takes two directory paths as inputs and returns a slice of updated file paths
-// and an error. It compares the files in the two directories (excluding subdirectories
-// specified in the excludeSubDirs variable) and checks if they are equal. If a file is
-// modified, its path is added to the updated slice.
-func GetDiffFiles(dirA, dirB string) ([]string, error) {
-	updated, err := compareDirectories(dirA, dirB, excludeSubDirs)
-	return updated, err
-}
-
-func compareDirectories(dirA, dirB string, excludeSubDirs []string) ([]string, error) {
+// CompareDirs takes two directory paths as inputs and returns a slice of different files between them.
+func CompareDirs(dirA, dirB string, excludeSubDirs []string) ([]string, error) {
 	filesInDirA, err := getFiles(dirA, excludeSubDirs)
 	if err != nil {
 		return nil, err
@@ -44,6 +25,7 @@ func compareDirectories(dirA, dirB string, excludeSubDirs []string) ([]string, e
 	for f := range filesInDirA {
 		_, found := filesInDirB[f]
 		if !found {
+			updated = append(updated, f)
 			continue
 		}
 		fileA := filepath.Join(dirA, f)
@@ -54,10 +36,23 @@ func compareDirectories(dirA, dirB string, excludeSubDirs []string) ([]string, e
 		}
 	}
 
+	updated = append(updated, mapKeyDiff(filesInDirB, filesInDirA)...)
+
 	return updated, nil
 }
 
+func mapKeyDiff(m1, m2 map[string]bool) []string {
+	var diff []string
+	for key := range m1 {
+		if !m2[key] {
+			diff = append(diff, key)
+		}
+	}
+	return diff
+}
+
 func getFiles(path string, excludeSubDirs []string) (map[string]bool, error) {
+	path = ensureTrailingSlash(path)
 	files := make(map[string]bool)
 	err := filepath.Walk(path, func(fpath string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -83,6 +78,13 @@ func getFiles(path string, excludeSubDirs []string) (map[string]bool, error) {
 	return files, err
 }
 
+func ensureTrailingSlash(s string) string {
+	if !strings.HasSuffix(s, "/") {
+		s += "/"
+	}
+	return s
+}
+
 func fileEqual(fileA, fileB string) bool {
 	hashA := hashFile(fileA)
 	hashB := hashFile(fileB)
@@ -105,6 +107,7 @@ func hashFile(path string) uint64 {
 	return hash.Sum64()
 }
 
-func hashString(item string) uint64 {
+// HashString is wrapper for hashing string.
+func HashString(item string) uint64 {
 	return xxhash.Sum64String(item)
 }

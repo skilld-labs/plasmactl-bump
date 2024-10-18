@@ -1,4 +1,5 @@
-package plasmactlbump
+// Package repository stores tools to work with git repository.
+package repository
 
 import (
 	"errors"
@@ -7,48 +8,57 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-git/go-git/v5/plumbing"
-
-	"github.com/go-git/go-git/v5/plumbing/storer"
-
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/utils/merkletrie"
 )
 
-// BumperRepo encapsulates Git-related operations for bumping versions in a Git repository.
-type BumperRepo struct {
+const (
+	// BumpMessage is bump commit message.
+	BumpMessage = "versions bump"
+)
+
+// Bumper encapsulates Git-related operations for bumping versions in a Git repository.
+type Bumper struct {
 	git           *git.Repository
 	name          string
 	mail          string
 	commitMessage string
 }
 
-func getRepo() (*BumperRepo, error) {
+// NewBumper returns new instance of [Bumper].
+func NewBumper() (*Bumper, error) {
 	r, err := git.PlainOpen("./")
 	if err != nil {
 		return nil, err
 	}
 
-	return &BumperRepo{
+	return &Bumper{
 		git:           r,
 		name:          "Bumper",
 		mail:          "no-reply@skilld.cloud",
-		commitMessage: bumpSearchText,
+		commitMessage: BumpMessage,
 	}, nil
 }
 
+// GetGit returns internal [*git.Repository]
+func (r *Bumper) GetGit() *git.Repository {
+	return r.git
+}
+
 // IsOwnCommit checks if the latest commit in the Git repository was made by the bumper.
-func (r *BumperRepo) IsOwnCommit() bool {
+func (r *Bumper) IsOwnCommit() bool {
 	ref, err := r.git.Head()
 	if err != nil {
-		PromptError(err)
+		//plasmactlbump.PromptError(err)
 		return false
 	}
 
 	commit, err := r.git.CommitObject(ref.Hash())
 	if err != nil {
-		PromptError(err)
+		//plasmactlbump.PromptError(err)
 		return false
 	}
 
@@ -56,7 +66,7 @@ func (r *BumperRepo) IsOwnCommit() bool {
 }
 
 // GetLastCommitShortHash gets the short hash of the latest commit in the Git repository.
-func (r *BumperRepo) GetLastCommitShortHash() (string, error) {
+func (r *Bumper) GetLastCommitShortHash() (string, error) {
 	ref, err := r.git.Head()
 	if err != nil {
 		return "", err
@@ -65,8 +75,8 @@ func (r *BumperRepo) GetLastCommitShortHash() (string, error) {
 	return ref.Hash().String()[:13], nil
 }
 
-// getModifiedFiles gets a list of files modified in the Git repository commits after last Bump.
-func (r *BumperRepo) getModifiedFiles(last bool) ([]string, error) {
+// GetModifiedFiles gets a list of files modified in the Git repository commits after last Bump.
+func (r *Bumper) GetModifiedFiles(last bool) ([]string, error) {
 	var modifiedFiles []string
 
 	headRef, err := r.git.Head()
@@ -150,7 +160,7 @@ func (r *BumperRepo) getModifiedFiles(last bool) ([]string, error) {
 }
 
 // Commit stores the current changes to the Git repository with the default commit message and author.
-func (r *BumperRepo) Commit() error {
+func (r *Bumper) Commit() error {
 	fmt.Println("Commit changes to updated resources")
 	w, _ := r.git.Worktree()
 	status, _ := w.Status()
@@ -186,7 +196,7 @@ func (r *BumperRepo) Commit() error {
 // GetRepoName retrieves the name of the remote repository.
 // It looks for the remote named "origin" and extracts the repository name from the remote's URL.
 // It returns the repository name as a string and an error if the remote is not found or the repository name cannot be extracted.
-func (r *BumperRepo) GetRepoName() (string, error) {
+func (r *Bumper) GetRepoName() (string, error) {
 	remote, err := r.git.Remote("origin")
 	if err != nil {
 		return "", err
@@ -205,7 +215,7 @@ func (r *BumperRepo) GetRepoName() (string, error) {
 }
 
 // GetComparisonCommit returns the commit that contains the specified search message.
-func (r *BumperRepo) GetComparisonCommit(from plumbing.Hash, searchMessage string) (*plumbing.Hash, error) {
+func (r *Bumper) GetComparisonCommit(from plumbing.Hash, searchMessage string) (*plumbing.Hash, error) {
 	cIter, err := r.git.Log(&git.LogOptions{From: from})
 	if err != nil {
 		return nil, err

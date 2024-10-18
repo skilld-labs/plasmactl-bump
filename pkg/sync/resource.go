@@ -1,23 +1,25 @@
-package plasmactlbump
+package sync
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/launchrctl/launchr/pkg/log"
-
+	"github.com/launchrctl/launchr"
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	resourceNamePattern = "%s__%s__%s"
+var (
+	errResourceMeta = errors.New("failed to open plasma.yaml")
 )
 
-func prepareResourceName(platform, kind, role string) string {
-	return fmt.Sprintf(resourceNamePattern, platform, kind, role)
+// PrepareResourceName concatenates resource platform, kind and role via specific template.
+// It allows to have common resource names.
+func PrepareResourceName(platform, kind, role string) string {
+	return fmt.Sprintf("%s__%s__%s", platform, kind, role)
 }
 
 // Resource represents a platform resource
@@ -26,7 +28,8 @@ type Resource struct {
 	pathPrefix string
 }
 
-func newResource(name, prefix string) *Resource {
+// NewResource returns new [Resource] instance.
+func NewResource(name, prefix string) *Resource {
 	return &Resource{
 		name:       name,
 		pathPrefix: prefix,
@@ -38,136 +41,162 @@ func (r *Resource) GetName() string {
 	return r.name
 }
 
-func (r *Resource) isValidResource() bool {
-	metaPath := r.buildMetaPath()
+// IsValidResource checks if resource has meta file.
+func (r *Resource) IsValidResource() bool {
+	metaPath := r.getRealMetaPath()
 	_, err := os.Stat(metaPath)
 
 	return !os.IsNotExist(err)
 }
 
-func (r *Resource) buildMetaPath() string {
-	parts := strings.Split(r.GetName(), "__")
-
-	meta := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
+func (r *Resource) getRealMetaPath() string {
+	meta := r.BuildMetaPath()
 	return filepath.Join(r.pathPrefix, meta)
+}
+
+// BuildMetaPath returns common path to resource meta.
+func (r *Resource) BuildMetaPath() string {
+	parts := strings.Split(r.GetName(), "__")
+	meta := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
+	return meta
 }
 
 // GetVersion retrieves the version of the resource from the plasma.yaml
 func (r *Resource) GetVersion() (string, error) {
-	metaFile := r.buildMetaPath()
+	metaFile := r.getRealMetaPath()
 	if _, err := os.Stat(metaFile); err == nil {
 		data, errRead := os.ReadFile(filepath.Clean(metaFile))
 		if errRead != nil {
-			log.Debug("Failed to read meta file: %v", err)
-			return "", errFailedMeta
+			launchr.Log().Debug(fmt.Sprintf("Failed to read meta file: %v", err))
+			return "", errResourceMeta
 		}
 
-		var meta map[string]interface{}
+		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
-			log.Debug("Failed to unmarshal meta file: %v", err)
-			return "", errFailedMeta
+			launchr.Log().Debug(fmt.Sprintf("Failed to unmarshal meta file: %v", err))
+			return "", errResourceMeta
 		}
 
-		if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
-			version := plasma["version"]
-			if version == nil {
-				version = ""
-			}
-			val, okConversion := version.(string)
-			if okConversion {
-				return val, nil
-			}
-
-			return fmt.Sprint(version), nil
+		version := GetMetaVersion(meta)
+		if version == "" {
+			launchr.Log().Debug("Empty meta file, return empty string as version")
 		}
 
-		log.Debug("Empty meta file, return empty string as version")
-		return "", nil
+		return version, nil
 	}
 
-	log.Debug("Meta file (%s) is missing", metaFile)
-	return "", errFailedMeta
+	return "", errResourceMeta
+}
+
+// GetMetaVersion searches for version in meta data.
+func GetMetaVersion(meta map[string]any) string {
+	if plasma, ok := meta["plasma"].(map[string]any); ok {
+		version := plasma["version"]
+		if version == nil {
+			version = ""
+		}
+		val, okConversion := version.(string)
+		if okConversion {
+			return val
+		}
+
+		return fmt.Sprint(version)
+	}
+
+	return ""
+}
+
+// GetBaseVersion returns resource version without `-` if any.
+func (r *Resource) GetBaseVersion() (string, string, error) {
+	version, err := r.GetVersion()
+	if err != nil {
+		return "", "", err
+	}
+
+	split := strings.Split(version, "-")
+	if len(split) > 2 {
+		launchr.Term().Warning().Printfln("Resource %s has incorrect version format %s", version, r.GetName())
+	}
+
+	return split[0], version, nil
 }
 
 // UpdateVersion updates the version of the resource in the plasma.yaml file
 func (r *Resource) UpdateVersion(version string) error {
-	metaFile := r.buildMetaPath()
+	metaFile := r.getRealMetaPath()
 	if _, err := os.Stat(metaFile); err == nil {
 		data, errRead := os.ReadFile(filepath.Clean(metaFile))
 		if errRead != nil {
-			log.Debug("Failed to read meta file: %v", errRead)
+			launchr.Log().Debug(fmt.Sprintf("Failed to read meta file: %v", errRead))
 			return errRead
 		}
 
 		var b bytes.Buffer
-		var meta map[string]interface{}
+		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
-			log.Debug("Failed to unmarshal meta file: %v", errUnmarshal)
+			launchr.Log().Debug(fmt.Sprintf("Failed to unmarshal meta file: %v", errUnmarshal))
 			return errUnmarshal
 		}
 
-		if plasma, ok := meta["plasma"].(map[string]interface{}); ok {
+		if plasma, ok := meta["plasma"].(map[string]any); ok {
 			plasma["version"] = version
 		} else {
-			meta["plasma"] = map[string]interface{}{"version": version}
+			meta["plasma"] = map[string]any{"version": version}
 		}
 
 		yamlEncoder := yaml.NewEncoder(&b)
 		yamlEncoder.SetIndent(2)
 		errEncode := yamlEncoder.Encode(&meta)
 		if errEncode != nil {
-			log.Debug("Failed to marshal meta file: %v", errEncode)
+			launchr.Log().Debug(fmt.Sprintf("Failed to marshal meta file: %v", errEncode))
 			return errEncode
 		}
 
 		errWrite := os.WriteFile(metaFile, b.Bytes(), 0600)
 		if errWrite != nil {
-			log.Debug("Failed to write meta file: %v", err)
+			launchr.Log().Debug(fmt.Sprintf("Failed to write meta file: %v", err))
 			return errWrite
 		}
 
 		return nil
 	}
 
-	log.Debug("Meta file (%s) is missing", metaFile)
-	return errFailedMeta
+	return errResourceMeta
 }
 
 // BuildResourceFromPath builds a new instance of Resource from the given path.
 func BuildResourceFromPath(path, pathPrefix string) *Resource {
-	if !isVersionableFile(path) {
+	platform, kind, role, err := ProcessResourcePath(path)
+	if err != nil || (platform == "" || kind == "" || role == "") || !IsUpdatableKind(kind) {
 		return nil
 	}
 
-	platform, kind, role, err := processResourcePath(path)
-	if err != nil || (platform == "" || kind == "" || role == "") || !isUpdatableKind(kind) {
-		return nil
-	}
-
-	resource := newResource(prepareResourceName(platform, kind, role), pathPrefix)
-	if !resource.isValidResource() {
+	resource := NewResource(PrepareResourceName(platform, kind, role), pathPrefix)
+	if !resource.IsValidResource() {
 		return nil
 	}
 	return resource
 }
 
-func processResourcePath(path string) (string, string, string, error) {
+// ProcessResourcePath splits resource path onto platform, kind and role.
+func ProcessResourcePath(path string) (string, string, string, error) {
 	parts := strings.Split(path, "/")
 	if len(parts) > 3 {
 		return parts[0], parts[1], parts[3], nil
 	}
 
-	return "", "", "", errEmptyPath
+	return "", "", "", errors.New("empty resource path")
 }
 
-func isUpdatableKind(kind string) bool {
-	if _, ok := kinds[kind]; ok {
+// IsUpdatableKind checks if resource kind is in [Kinds] range.
+func IsUpdatableKind(kind string) bool {
+	if _, ok := Kinds[kind]; ok {
 		return true
 	}
 
-	for _, value := range kinds {
+	for _, value := range Kinds {
 		if value == kind {
 			return true
 		}
@@ -204,6 +233,24 @@ func (orm *OrderedResourceMap) Set(key string, value *Resource) {
 	}
 
 	orm.dict[key] = value
+}
+
+// Unset a value from the OrderedResourceMap.
+func (orm *OrderedResourceMap) Unset(key string) {
+	if _, ok := orm.dict[key]; ok {
+		index := -1
+		for i, item := range orm.keys {
+			if item == key {
+				index = i
+			}
+		}
+		if index != -1 {
+			orm.keys = append(orm.keys[:index], orm.keys[index+1:]...)
+		}
+
+	}
+
+	delete(orm.dict, key)
 }
 
 // Get a value from the OrderedResourceMap.
