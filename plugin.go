@@ -80,7 +80,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 
 	bumpCmd.Flags().BoolVarP(&doSync, "sync", "s", false, "Propagate versions of updated components to their dependencies")
 	bumpCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate propagate without doing anything")
-	bumpCmd.Flags().BoolVar(&listImpacted, "list-impacted-resources", false, "Print list of impacted resources")
+	bumpCmd.Flags().BoolVar(&listImpacted, "list-impacted", false, "Print list of impacted resources")
 	bumpCmd.Flags().StringVar(&override, "override", "", "Override comparison artifact name (commit)")
 	bumpCmd.Flags().StringVar(&username, "username", "", "Username for artifact repository")
 	bumpCmd.Flags().StringVar(&password, "password", "", "Password for artifact repository")
