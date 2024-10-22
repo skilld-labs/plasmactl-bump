@@ -226,7 +226,7 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 
 	var prevHash string
 	var prevHashTime time.Time
-	var commitMessage string
+	var author string
 	err = cIter.ForEach(func(c *object.Commit) error {
 		file, err := c.File(resourceMetaPath)
 		if err != nil {
@@ -264,7 +264,7 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 
 		prevHashTime = c.Author.When
 		prevHash = c.Hash.String()
-		commitMessage = c.Message
+		author = c.Author.Name
 		return nil
 	})
 
@@ -272,7 +272,7 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 		return nil, err
 	}
 
-	if commitMessage != repository.BumpMessage {
+	if author != repository.Author {
 		launchr.Term().Warning().Printfln("Non-bump version selected for %s resource", resourceMetaPath)
 	}
 
