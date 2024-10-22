@@ -15,7 +15,7 @@ import (
 
 	"github.com/launchrctl/launchr"
 
-	"github.com/skilld-labs/plasmactl-bump/pkg/repository"
+	"github.com/skilld-labs/plasmactl-bump/v2/pkg/repository"
 )
 
 const (

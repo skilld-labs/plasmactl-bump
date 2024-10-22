@@ -293,8 +293,8 @@ github.com/launchrctl/compose v0.10.0 h1:FlLg4BM9dElRYs2T2cZQxyMKLJdqL3jkXh6qFJq
 github.com/launchrctl/compose v0.10.0/go.mod h1:9BHMgw95xJlc4junJFIzenfcr87hw98Um+LN6s3QMt8=
 github.com/launchrctl/keyring v0.2.5 h1:NbGquLfWNwydL0+oHV2ltUj9Dj+W+2v5PeqFBHaIEKY=
 github.com/launchrctl/keyring v0.2.5/go.mod h1:uBHC4ekh6hJikEA8YGlY1LDCi3iF3RBCvty0E4oZebA=
-github.com/launchrctl/launchr v0.16.2 h1:5eyB1jVs2fjJg/iGaP3DF6/gjiWp8tBfEJMGugxoK2E=
-github.com/launchrctl/launchr v0.16.2/go.mod h1:EHcl8EVllzMRwJ1kHJz0OYA11GEKMLLrSCzCHqBenkE=
+github.com/launchrctl/launchr v0.16.3 h1:/td/4J3CrNmD0aomD47+C/1n2luVsFFGuJilgUtBisk=
+github.com/launchrctl/launchr v0.16.3/go.mod h1:EHcl8EVllzMRwJ1kHJz0OYA11GEKMLLrSCzCHqBenkE=
 github.com/lithammer/fuzzysearch v1.1.8 h1:/HIuJnjHuXS8bKaiTMeeDlW2/AyIWk2brx1V8LFgLN4=
 github.com/lithammer/fuzzysearch v1.1.8/go.mod h1:IdqeyBClc3FFqSzYq/MXESsS4S0FsZ5ajtkr5xPLts4=
 github.com/lucasb-eyer/go-colorful v1.2.0 h1:1nnpGOrhyZZuNyfu1QjKiUICQ74+3FNCN69Aj6K7nkY=

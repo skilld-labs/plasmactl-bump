@@ -6,7 +6,7 @@ import (
 	"github.com/launchrctl/launchr"
 	"github.com/spf13/cobra"
 
-	"github.com/skilld-labs/plasmactl-bump/pkg/sync"
+	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
 )
 
 func init() {

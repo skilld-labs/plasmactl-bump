@@ -7,7 +7,7 @@ FIRST_GOPATH:=$(firstword $(subst :, ,$(GOPATH)))
 GIT_HASH:=$(shell git log --format="%h" -n 1 2> /dev/null)
 GIT_BRANCH:=$(shell git branch 2> /dev/null | grep '*' | cut -f2 -d' ')
 APP_VERSION:="$(GIT_BRANCH)-$(GIT_HASH)"
-GOPKG:=github.com/skilld-labs/plasmactl-bump
+GOPKG:=github.com/skilld-labs/plasmactl-bump/v2
 
 DEBUG?=0
 ifeq ($(DEBUG), 1)
