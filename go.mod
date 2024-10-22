@@ -1,4 +1,4 @@
-module github.com/skilld-labs/plasmactl-bump
+module github.com/skilld-labs/plasmactl-bump/v2
 
 go 1.23.2
 
@@ -7,7 +7,7 @@ require (
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/launchrctl/compose v0.10.0
 	github.com/launchrctl/keyring v0.2.5
-	github.com/launchrctl/launchr v0.16.2
+	github.com/launchrctl/launchr v0.16.3
 	github.com/sosedoff/ansible-vault-go v0.2.0
 	github.com/spf13/cobra v1.8.1
 	github.com/stevenle/topsort v0.2.0
