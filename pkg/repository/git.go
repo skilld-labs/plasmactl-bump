@@ -18,6 +18,8 @@ import (
 const (
 	// BumpMessage is bump commit message.
 	BumpMessage = "versions bump"
+	// Author is the name of bump commit author.
+	Author = "Bumper"
 )
 
 // Bumper encapsulates Git-related operations for bumping versions in a Git repository.
@@ -37,7 +39,7 @@ func NewBumper() (*Bumper, error) {
 
 	return &Bumper{
 		git:           r,
-		name:          "Bumper",
+		name:          Author,
 		mail:          "no-reply@skilld.cloud",
 		commitMessage: BumpMessage,
 	}, nil

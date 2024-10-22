@@ -172,21 +172,27 @@ func (i *Inventory) buildResourcesGraph() error {
 		entity := strings.ToLower(filepath.Base(relPath))
 
 		switch entity {
+		case "plasma.yaml":
+			resource := BuildResourceFromPath(relPath, i.sourceDir)
+			if resource == nil {
+				break
+			}
+			if !resource.IsValidResource() {
+				break
+			}
+
+			resourceName := resource.GetName()
+			i.resourcesMap[resourceName] = true
 		case "dependencies.yaml":
-			platform, kind, role, errPath := ProcessResourcePath(relPath)
-			if errPath != nil {
+			resource := BuildResourceFromPath(relPath, i.sourceDir)
+			if resource == nil {
+				break
+			}
+			if !resource.IsValidResource() {
 				break
 			}
 
-			if platform == "" || kind == "" || role == "" {
-				break
-			}
-
-			resourceName := PrepareMachineResourceName(platform, kind, role)
-			if !IsUpdatableKind(kind) {
-				break
-			}
-
+			resourceName := resource.GetName()
 			i.resourcesMap[resourceName] = true
 
 			data, errRead := os.ReadFile(filepath.Clean(path))
