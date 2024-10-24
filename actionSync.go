@@ -319,56 +319,57 @@ func (s *SyncAction) ensureResourceIsVersioned(resourceVersion, resourceMetaPath
 	return ref, nil
 }
 
-func (s *SyncAction) ensureResourceNonVersioned(mrn string, repo *git.Repository) error {
-	resourcePath, err := sync.ConvertMRNtoPath(mrn)
-	if err != nil {
-		return err
-	}
-
-	buildPath := filepath.Join(s.buildDir, resourcePath)
-	resourceFiles, err := sync.GetFiles(buildPath, []string{})
-	if err != nil {
-		return err
-	}
-
-	ref, err := repo.Head()
-	if err != nil {
-		return err
-	}
-
-	headCommit, err := repo.CommitObject(ref.Hash())
-	if err != nil {
-		return err
-	}
-
-	for f := range resourceFiles {
-		buildHash, err := sync.HashFileByPath(filepath.Join(buildPath, f))
-		if err != nil {
-			return err
-		}
-
-		headFile, err := headCommit.File(filepath.Join(resourcePath, f))
-		if err != nil {
-			return err
-		}
-
-		reader, err := headFile.Blob.Reader()
-		if err != nil {
-			return err
-		}
-
-		headHash, err := sync.HashFileFromReader(reader)
-		if err != nil {
-			return err
-		}
-
-		if buildHash != headHash {
-			return fmt.Errorf("resource %s has unversioned changes. You need to commit these changes", mrn)
-		}
-	}
-
-	return nil
-}
+//func (s *SyncAction) ensureResourceNonVersioned(mrn string, repo *git.Repository) error {
+//	resourcePath, err := sync.ConvertMRNtoPath(mrn)
+//	if err != nil {
+//		return err
+//	}
+//
+//	buildPath := filepath.Join(s.buildDir, resourcePath)
+//	resourceFiles, err := sync.GetFiles(buildPath, []string{})
+//	if err != nil {
+//		return err
+//	}
+//
+//	ref, err := repo.Head()
+//	if err != nil {
+//		return err
+//	}
+//
+//	headCommit, err := repo.CommitObject(ref.Hash())
+//	if err != nil {
+//		return err
+//	}
+//
+//	for f := range resourceFiles {
+//		buildHash, err := sync.HashFileByPath(filepath.Join(buildPath, f))
+//		if err != nil {
+//			return err
+//		}
+//
+//		launchr.Term().Warning().Printfln(filepath.Join(resourcePath, f))
+//		headFile, err := headCommit.File(filepath.Join(resourcePath, f))
+//		if err != nil {
+//			return err
+//		}
+//
+//		reader, err := headFile.Blob.Reader()
+//		if err != nil {
+//			return err
+//		}
+//
+//		headHash, err := sync.HashFileFromReader(reader)
+//		if err != nil {
+//			return err
+//		}
+//
+//		if buildHash != headHash {
+//			return fmt.Errorf("resource %s has unversioned changes. You need to commit these changes", mrn)
+//		}
+//	}
+//
+//	return nil
+//}
 
 func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
 	// @TODO look for several vars during iteration?
@@ -750,12 +751,13 @@ func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.Ordered
 		}
 
 		if buildFullVersion == artifactFullVersion {
-			errNotVersioned := s.ensureResourceNonVersioned(resourceName, repo)
-			if errNotVersioned != nil {
-				return nil, errNotVersioned
-			}
+			//errNotVersioned := s.ensureResourceNonVersioned(resourceName, repo)
+			//if errNotVersioned != nil {
+			//	launchr.Term().Printfln("ensureResourceNonVersioned")
+			//	return nil, errNotVersioned
+			//}
 
-			launchr.Term().Warning().Printfln("Latest commit of %s is not a bump commit.", resourceName)
+			launchr.Term().Warning().Printfln("- skipping %s (identical build and artifact version)", resourceName)
 			allUpdatedResources.Unset(buildResource.GetName())
 		}
 	}
