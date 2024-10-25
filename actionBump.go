@@ -62,7 +62,8 @@ func (k *bumpService) Bump(last bool) error {
 	}
 
 	if bumper.IsOwnCommit() {
-		return errors.New("skipping bump, as the latest commit is already by the bumper tool")
+		launchr.Term().Warning().Println("skipping bump, as the latest commit is already by the bumper tool")
+		return nil
 	}
 
 	files, err := bumper.GetModifiedFiles(last)
