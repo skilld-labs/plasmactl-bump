@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/launchrctl/launchr"
@@ -13,7 +14,8 @@ import (
 )
 
 var (
-	errResourceMeta = errors.New("failed to open plasma.yaml")
+	tplVersionGet = "failed to get resource version (%s)"
+	tplVersionSet = "failed to update resource version (%s)"
 )
 
 // PrepareMachineResourceName concatenates resource platform, kind and role via specific template.
@@ -28,7 +30,7 @@ func ConvertMRNtoPath(mrn string) (string, error) {
 	if len(parts) != 3 {
 		return "", errors.New("invalid MRN format")
 	}
-	return fmt.Sprintf("%s/%s/roles/%s", parts[0], parts[1], parts[2]), nil
+	return filepath.Join(parts[0], parts[1], "roles", parts[2]), nil
 }
 
 // Resource represents a platform resource
@@ -66,7 +68,7 @@ func (r *Resource) getRealMetaPath() string {
 // BuildMetaPath returns common path to resource meta.
 func (r *Resource) BuildMetaPath() string {
 	parts := strings.Split(r.GetName(), "__")
-	meta := fmt.Sprintf("%s/%s/roles/%s/meta/plasma.yaml", parts[0], parts[1], parts[2])
+	meta := filepath.Join(parts[0], parts[1], "roles", parts[2], "meta", "plasma.yaml")
 	return meta
 }
 
@@ -76,26 +78,26 @@ func (r *Resource) GetVersion() (string, error) {
 	if _, err := os.Stat(metaFile); err == nil {
 		data, errRead := os.ReadFile(filepath.Clean(metaFile))
 		if errRead != nil {
-			launchr.Log().Debug(fmt.Sprintf("Failed to read meta file: %v", err))
-			return "", errResourceMeta
+			launchr.Log().Debug("error", "error", errRead)
+			return "", fmt.Errorf(tplVersionGet, metaFile)
 		}
 
 		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
-			launchr.Log().Debug(fmt.Sprintf("Failed to unmarshal meta file: %v", err))
-			return "", errResourceMeta
+			launchr.Log().Debug("error", "error", errUnmarshal)
+			return "", fmt.Errorf(tplVersionGet, metaFile)
 		}
 
 		version := GetMetaVersion(meta)
 		if version == "" {
-			launchr.Log().Debug("Empty meta file, return empty string as version")
+			launchr.Log().Warn("Empty meta file, return empty string as version")
 		}
 
 		return version, nil
 	}
 
-	return "", errResourceMeta
+	return "", fmt.Errorf(tplVersionGet, metaFile)
 }
 
 // GetMetaVersion searches for version in meta data.
@@ -133,20 +135,20 @@ func (r *Resource) GetBaseVersion() (string, string, error) {
 
 // UpdateVersion updates the version of the resource in the plasma.yaml file
 func (r *Resource) UpdateVersion(version string) error {
-	metaFile := r.getRealMetaPath()
-	if _, err := os.Stat(metaFile); err == nil {
-		data, errRead := os.ReadFile(filepath.Clean(metaFile))
+	metaFilepath := r.getRealMetaPath()
+	if _, err := os.Stat(metaFilepath); err == nil {
+		data, errRead := os.ReadFile(filepath.Clean(metaFilepath))
 		if errRead != nil {
-			launchr.Log().Debug(fmt.Sprintf("Failed to read meta file: %v", errRead))
-			return errRead
+			launchr.Log().Debug("error", "error", errRead)
+			return fmt.Errorf(tplVersionSet, metaFilepath)
 		}
 
 		var b bytes.Buffer
 		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
-			launchr.Log().Debug(fmt.Sprintf("Failed to unmarshal meta file: %v", errUnmarshal))
-			return errUnmarshal
+			launchr.Log().Debug("error", "error", errRead)
+			return fmt.Errorf(tplVersionSet, metaFilepath)
 		}
 
 		if plasma, ok := meta["plasma"].(map[string]any); ok {
@@ -159,20 +161,20 @@ func (r *Resource) UpdateVersion(version string) error {
 		yamlEncoder.SetIndent(2)
 		errEncode := yamlEncoder.Encode(&meta)
 		if errEncode != nil {
-			launchr.Log().Debug(fmt.Sprintf("Failed to marshal meta file: %v", errEncode))
-			return errEncode
+			launchr.Log().Debug("error", "error", errEncode)
+			return fmt.Errorf(tplVersionSet, metaFilepath)
 		}
 
-		errWrite := os.WriteFile(metaFile, b.Bytes(), 0600)
+		errWrite := os.WriteFile(metaFilepath, b.Bytes(), 0600)
 		if errWrite != nil {
-			launchr.Log().Debug(fmt.Sprintf("Failed to write meta file: %v", err))
-			return errWrite
+			launchr.Log().Debug("error", "error", errWrite)
+			return fmt.Errorf(tplVersionSet, metaFilepath)
 		}
 
 		return nil
 	}
 
-	return errResourceMeta
+	return fmt.Errorf(tplVersionSet, metaFilepath)
 }
 
 // BuildResourceFromPath builds a new instance of Resource from the given path.
@@ -214,83 +216,96 @@ func IsUpdatableKind(kind string) bool {
 	return false
 }
 
-// OrderedResourceMap represents a map of resources with ordered keys
-//
-//	type OrderedResourceMap struct {
-//	  keys []string
-//	  dict map[string]*Resource
-//	}
-//
-// The `keys` field is a slice of strings that represents the order of the keys in the map.
-// The `dict` field is a map where the key is a string and the value is a pointer to a Resource object.
-type OrderedResourceMap struct {
+// OrderedMap represents generic struct with map and order keys.
+type OrderedMap[T any] struct {
 	keys []string
-	dict map[string]*Resource
+	dict map[string]T
 }
 
-// NewOrderedResourceMap returns a new instance of OrderedResourceMap with an empty dictionary.
-func NewOrderedResourceMap() *OrderedResourceMap {
-	return &OrderedResourceMap{
-		dict: make(map[string]*Resource),
+// NewOrderedMap returns a new instance of [OrderedMap].
+func NewOrderedMap[T any]() *OrderedMap[T] {
+	return &OrderedMap[T]{
+		keys: make([]string, 0),
+		dict: make(map[string]T),
 	}
 }
 
-// Set a value in the OrderedResourceMap.
-func (orm *OrderedResourceMap) Set(key string, value *Resource) {
-	if _, ok := orm.dict[key]; !ok {
-		orm.keys = append(orm.keys, key)
+// Set a value in the [OrderedMap].
+func (m *OrderedMap[T]) Set(key string, value T) {
+	if _, ok := m.dict[key]; !ok {
+		m.keys = append(m.keys, key)
 	}
 
-	orm.dict[key] = value
+	m.dict[key] = value
 }
 
-// Unset a value from the OrderedResourceMap.
-func (orm *OrderedResourceMap) Unset(key string) {
-	if _, ok := orm.dict[key]; ok {
+// Unset a value from the [OrderedMap].
+func (m *OrderedMap[T]) Unset(key string) {
+	if _, ok := m.dict[key]; ok {
 		index := -1
-		for i, item := range orm.keys {
+		for i, item := range m.keys {
 			if item == key {
 				index = i
 			}
 		}
 		if index != -1 {
-			orm.keys = append(orm.keys[:index], orm.keys[index+1:]...)
+			m.keys = append(m.keys[:index], m.keys[index+1:]...)
 		}
 
 	}
 
-	delete(orm.dict, key)
+	delete(m.dict, key)
 }
 
-// Get a value from the OrderedResourceMap.
-func (orm *OrderedResourceMap) Get(key string) (*Resource, bool) {
-	val, ok := orm.dict[key]
+// Get a value from the [OrderedMap].
+func (m *OrderedMap[T]) Get(key string) (T, bool) {
+	val, ok := m.dict[key]
 	return val, ok
 }
 
-// OrderedKeys returns the ordered keys from the OrderedResourceMap.
-func (orm *OrderedResourceMap) OrderedKeys() []string {
-	return orm.keys
+// Keys returns the ordered keys from the [OrderedMap].
+func (m *OrderedMap[T]) Keys() []string {
+	return m.keys
 }
 
-// OrderBy updates the order of keys in the OrderedResourceMap based on the orderList.
-// It removes any keys in orderList that are not present in the OrderedResourceMap.
-// The keys are reordered in the OrderedResourceMap according to the order of appearance in orderList.
-// The order of keys not present in orderList remains unchanged.
-func (orm *OrderedResourceMap) OrderBy(orderList []string) {
+// OrderBy updates the order of keys in the [OrderedMap] based on the orderList.
+func (m *OrderedMap[T]) OrderBy(orderList []string) {
 	var newKeys []string
 
 	for _, item := range orderList {
-		_, ok := orm.Get(item)
+		_, ok := m.Get(item)
 		if ok {
 			newKeys = append(newKeys, item)
 		}
 	}
 
-	orm.keys = newKeys
+	m.keys = newKeys
 }
 
-// Len returns the length of the OrderedResourceMap.
-func (orm *OrderedResourceMap) Len() int {
-	return len(orm.keys)
+// SortKeysAlphabetically sorts internal keys alphabetically.
+func (m *OrderedMap[T]) SortKeysAlphabetically() {
+	sort.Strings(m.keys)
+}
+
+// Len returns the length of the [OrderedMap].
+func (m *OrderedMap[T]) Len() int {
+	return len(m.keys)
+}
+
+// ToList converts map to ordered list [OrderedMap].
+func (m *OrderedMap[T]) ToList() []T {
+	var list []T
+	for _, key := range m.keys {
+		list = append(list, m.dict[key])
+	}
+	return list
+}
+
+// ToDict returns copy of [OrderedMap] dictionary.
+func (m *OrderedMap[T]) ToDict() map[string]T {
+	dict := make(map[string]T)
+	for key, value := range m.dict {
+		dict[key] = value
+	}
+	return dict
 }

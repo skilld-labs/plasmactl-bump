@@ -96,10 +96,9 @@ type Inventory struct {
 	ResourcesCrawler *ResourcesCrawler
 
 	//internal
-	resourcesMap   map[string]bool
-	requiredMap    map[string]map[string]bool
-	dependencyMap  map[string]map[string]bool
-	resourcesOrder []string
+	resourcesMap  *OrderedMap[bool]
+	requiredMap   map[string]*OrderedMap[bool]
+	dependencyMap map[string]*OrderedMap[bool]
 
 	// options
 	sourceDir string
@@ -112,9 +111,9 @@ func NewInventory(sourceDir string) (*Inventory, error) {
 	inv := &Inventory{
 		sourceDir:        sourceDir,
 		ResourcesCrawler: NewResourcesCrawler(sourceDir),
-		resourcesMap:     make(map[string]bool),
-		requiredMap:      make(map[string]map[string]bool),
-		dependencyMap:    make(map[string]map[string]bool),
+		resourcesMap:     NewOrderedMap[bool](),
+		requiredMap:      make(map[string]*OrderedMap[bool]),
+		dependencyMap:    make(map[string]*OrderedMap[bool]),
 	}
 
 	err := inv.Init()
@@ -130,25 +129,24 @@ func (i *Inventory) Init() error {
 }
 
 // GetResourcesMap returns map of all resources found in source dir.
-func (i *Inventory) GetResourcesMap() map[string]bool {
+func (i *Inventory) GetResourcesMap() *OrderedMap[bool] {
 	return i.resourcesMap
 }
 
 // GetResourcesOrder returns the order of resources in the inventory.
-// It returns a slice of strings representing the order of the resources.
 func (i *Inventory) GetResourcesOrder() []string {
-	return i.resourcesOrder
+	return i.resourcesMap.Keys()
 }
 
 // GetRequiredMap returns the required map, which represents the dependencies between resources in the Inventory.
 // The map is of type `map[string]map[string]bool`, where the keys are the resource names and the values are maps of dependent resource names.
-func (i *Inventory) GetRequiredMap() map[string]map[string]bool {
+func (i *Inventory) GetRequiredMap() map[string]*OrderedMap[bool] {
 	return i.requiredMap
 }
 
 // GetDependenciesMap returns the map, which represents the dependencies between resources in the Inventory.
 // The map is of type `map[string]map[string]bool`, where the keys are the resource names and the values are maps of dependent resource names.
-func (i *Inventory) GetDependenciesMap() map[string]map[string]bool {
+func (i *Inventory) GetDependenciesMap() map[string]*OrderedMap[bool] {
 	return i.dependencyMap
 }
 
@@ -182,7 +180,7 @@ func (i *Inventory) buildResourcesGraph() error {
 			}
 
 			resourceName := resource.GetName()
-			i.resourcesMap[resourceName] = true
+			i.resourcesMap.Set(resourceName, true)
 		case "dependencies.yaml":
 			resource := BuildResourceFromPath(relPath, i.sourceDir)
 			if resource == nil {
@@ -193,7 +191,7 @@ func (i *Inventory) buildResourcesGraph() error {
 			}
 
 			resourceName := resource.GetName()
-			i.resourcesMap[resourceName] = true
+			i.resourcesMap.Set(resourceName, true)
 
 			data, errRead := os.ReadFile(filepath.Clean(path))
 			if errRead != nil {
@@ -211,18 +209,18 @@ func (i *Inventory) buildResourcesGraph() error {
 			}
 
 			if i.dependencyMap[resourceName] == nil {
-				i.dependencyMap[resourceName] = make(map[string]bool)
+				i.dependencyMap[resourceName] = NewOrderedMap[bool]()
 			}
 
 			for _, dep := range deps {
 				if dep.IncludeRole.Name != "" {
 					depName := strings.ReplaceAll(dep.IncludeRole.Name, ".", "__")
 					if i.requiredMap[depName] == nil {
-						i.requiredMap[depName] = make(map[string]bool)
+						i.requiredMap[depName] = NewOrderedMap[bool]()
 					}
 
-					i.requiredMap[depName][resourceName] = true
-					i.dependencyMap[resourceName][depName] = true
+					i.requiredMap[depName].Set(resourceName, true)
+					i.dependencyMap[resourceName].Set(depName, true)
 				}
 			}
 		}
@@ -233,17 +231,17 @@ func (i *Inventory) buildResourcesGraph() error {
 		return err
 	}
 
-	platformItems := make(map[string]bool)
+	platformItems := NewOrderedMap[bool]()
 	for resourceName := range i.requiredMap {
 		if _, ok := i.dependencyMap[resourceName]; !ok {
-			platformItems[resourceName] = true
+			platformItems.Set(resourceName, true)
 		}
 	}
 
 	i.requiredMap[rootPlatform] = platformItems
 	graph := topsort.NewGraph()
 	for platform, resources := range i.requiredMap {
-		for resource := range resources {
+		for _, resource := range resources.Keys() {
 			graph.AddNode(resource)
 			edgeErr := graph.AddEdge(platform, resource)
 			if edgeErr != nil {
@@ -262,15 +260,15 @@ func (i *Inventory) buildResourcesGraph() error {
 		order[y], order[j] = order[j], order[y]
 	}
 
-	i.resourcesOrder = order
+	i.resourcesMap.OrderBy(order)
 
 	return nil
 }
 
 // GetChangedResources returns an OrderedResourceMap containing the resources that have been modified, based on the provided list of modified files.
 // It iterates over the modified files, builds a resource from each file path, and adds it to the result map if it is not already present.
-func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedResourceMap {
-	resources := NewOrderedResourceMap()
+func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedMap[*Resource] {
+	resources := NewOrderedMap[*Resource]()
 	for _, path := range modifiedFiles {
 		resource := BuildResourceFromPath(path, i.sourceDir)
 		if resource == nil {
@@ -285,24 +283,10 @@ func (i *Inventory) GetChangedResources(modifiedFiles []string) *OrderedResource
 	return resources
 }
 
-// GetChangedVarsResources returns the resources and variable maps associated with the changed variables in the modified files.
-// It takes a slice of modified file paths as input.
-// It returns the resources as an OrderedResourceMap and the variable maps as a map[string]map[string]bool.
-// If there are no changed variables, it returns nil for both the resources and variable maps.
-func (i *Inventory) GetChangedVarsResources(modifiedFiles []string, comparisonDir, vaultpass string) (*OrderedResourceMap, map[string]map[string]bool, error) {
-	variables, _, err := i.GetChangedVariables(modifiedFiles, comparisonDir, vaultpass)
-	if len(variables) == 0 || err != nil {
-		return NewOrderedResourceMap(), make(map[string]map[string]bool), err
-	}
-
-	resources, resourceVariablesMap, err := i.SearchVariablesAffectedResources(variables)
-	return resources, resourceVariablesMap, err
-}
-
 // GetChangedVariables fetches variables file from list, compare them with comparison dir files and fetches changed vars.
-func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, vaultpass string) (map[string]*Variable, map[string]*Variable, error) {
-	changedVariables := make(map[string]*Variable)
-	deletedVariables := make(map[string]*Variable)
+func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, vaultpass string) (*OrderedMap[*Variable], *OrderedMap[*Variable], error) {
+	changedVariables := NewOrderedMap[*Variable]()
+	deletedVariables := NewOrderedMap[*Variable]()
 	for _, path := range modifiedFiles {
 		platform, kind, role, errPath := ProcessResourcePath(path)
 		if errPath != nil {
@@ -354,8 +338,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, v
 							platform: platform,
 							isVault:  isVault,
 						}
-
-						changedVariables[changedVar.name] = changedVar
+						changedVariables.Set(changedVar.GetName(), changedVar)
 					}
 				} else {
 					// Handle new variable.
@@ -368,7 +351,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, v
 						isVault:  isVault,
 					}
 
-					changedVariables[newVar.name] = newVar
+					changedVariables.Set(newVar.GetName(), newVar)
 				}
 			}
 
@@ -384,7 +367,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, v
 						isVault:  isVault,
 					}
 
-					deletedVariables[deletedVar.name] = deletedVar
+					deletedVariables.Set(deletedVar.GetName(), deletedVar)
 				}
 			}
 
@@ -404,7 +387,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, v
 					isVault:  isVault,
 				}
 
-				changedVariables[newVar.name] = newVar
+				changedVariables.Set(newVar.GetName(), newVar)
 			}
 
 		} else if !sourceFileExists && artifactFileExists {
@@ -424,17 +407,19 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, v
 					isVault:  isVault,
 				}
 
-				deletedVariables[deletedVar.name] = deletedVar
+				deletedVariables.Set(deletedVar.GetName(), deletedVar)
 			}
 		}
 	}
 
+	changedVariables.SortKeysAlphabetically()
+	deletedVariables.SortKeysAlphabetically()
 	return changedVariables, deletedVariables, nil
 }
 
 // SearchVariablesAffectedResources crawls inventory to find if variables were used in [Inventory.SourceDir] resources.
-func (i *Inventory) SearchVariablesAffectedResources(variables map[string]*Variable) (*OrderedResourceMap, map[string]map[string]bool, error) {
-	resources := NewOrderedResourceMap()
+func (i *Inventory) SearchVariablesAffectedResources(variables []*Variable) (*OrderedMap[*Resource], map[string]map[string]bool, error) {
+	resources := NewOrderedMap[*Resource]()
 	resourceVariablesMap := make(map[string]map[string]bool)
 
 	splitByPlatform := make(map[string]map[string]*Variable)
@@ -482,7 +467,7 @@ func (i *Inventory) SearchVariablesAffectedResources(variables map[string]*Varia
 			continue
 		}
 		if val, ok := resources.Get(resource.GetName()); !ok {
-			launchr.Log().Debug(fmt.Sprintf("Processing resource %s", resource.GetName()))
+			launchr.Log().Debug("Processing resource", "resource", resource.GetName())
 			resources.Set(resource.GetName(), resource)
 		} else {
 			resource = val
@@ -701,15 +686,13 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 		sourcePath := filepath.Clean(filepath.Join(cr.rootDir, path))
 		sourceVariables, errRead := os.ReadFile(sourcePath)
 		if errRead != nil {
-			launchr.Log().Debug(fmt.Sprintf("Error reading YAML file: %s\n", errRead))
 			return variables, errRead
 		}
 
 		var sourceData map[string]any
 		errMarshal := yaml.Unmarshal(sourceVariables, &sourceData)
 		if errMarshal != nil {
-			launchr.Log().Debug(fmt.Sprintf("Unable to unmarshal YAML file: %s", errMarshal))
-			return variables, errRead
+			return variables, errMarshal
 		}
 
 		for k, v := range sourceData {
@@ -785,7 +768,7 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 		sourcePath := filepath.Clean(filepath.Join(cr.rootDir, file))
 		f, err := os.Open(sourcePath)
 		if err != nil {
-			launchr.Log().Debug(fmt.Sprintf("Error opening file %s: %v", file, err))
+			launchr.Log().Debug("file - msg", "file", file, "msg", err)
 			return err
 		}
 
@@ -825,7 +808,7 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 		}
 
 		if err = s.Err(); err != nil {
-			launchr.Log().Debug(fmt.Sprintf("Error reading file %s: %v", file, err))
+			launchr.Log().Debug("Error reading file: msg", "file", file, "msg", err)
 			continue
 		}
 

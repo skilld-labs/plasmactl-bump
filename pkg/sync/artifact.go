@@ -194,7 +194,7 @@ func (a *Artifact) downloadArtifact(username, password, artifactFile, artifactPa
 	if statusCode != http.StatusOK {
 		errRemove := os.Remove(artifactPath)
 		if errRemove != nil {
-			launchr.Log().Debug(fmt.Sprintf("Error during removing invalid artifact: %s", errRemove.Error()))
+			launchr.Log().Debug("Error during removing invalid artifact: msg", "msg", errRemove.Error())
 		}
 
 		if statusCode == http.StatusUnauthorized {

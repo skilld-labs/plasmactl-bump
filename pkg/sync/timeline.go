@@ -21,7 +21,7 @@ type TimelineItem interface {
 type TimelineResourcesItem struct {
 	version   string
 	commit    string
-	resources map[string]*Resource
+	resources *OrderedMap[*Resource]
 	date      time.Time
 }
 
@@ -31,7 +31,7 @@ func NewTimelineResourcesItem(version, commit string, date time.Time) *TimelineR
 		version:   version,
 		commit:    commit,
 		date:      date,
-		resources: make(map[string]*Resource),
+		resources: NewOrderedMap[*Resource](),
 	}
 }
 
@@ -52,21 +52,29 @@ func (i *TimelineResourcesItem) GetDate() time.Time {
 
 // AddResource pushes [Resource] into timeline item.
 func (i *TimelineResourcesItem) AddResource(r *Resource) {
-	i.resources[r.GetName()] = r
+	i.resources.Set(r.GetName(), r)
 }
 
 // GetResources returns [Resource] map of timeline.
-func (i *TimelineResourcesItem) GetResources() map[string]*Resource {
+func (i *TimelineResourcesItem) GetResources() *OrderedMap[*Resource] {
 	return i.resources
 }
 
 // Merge allows to merge other timeline item resources.
 func (i *TimelineResourcesItem) Merge(item TimelineItem) {
 	if r2, ok := item.(*TimelineResourcesItem); ok {
-		for k, r := range r2.resources {
-			if _, ok = i.resources[k]; !ok {
-				i.resources[k] = r
+		for _, key := range r2.resources.Keys() {
+			_, exists := i.resources.Get(key)
+			if exists {
+				continue
 			}
+
+			itemRes, exists := r2.resources.Get(key)
+			if !exists {
+				continue
+			}
+
+			i.resources.Set(key, itemRes)
 		}
 	}
 }
@@ -75,8 +83,12 @@ func (i *TimelineResourcesItem) Merge(item TimelineItem) {
 func (i *TimelineResourcesItem) Print() {
 	launchr.Term().Printfln("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
 	launchr.Term().Printf("Resource List:\n")
-	for resource := range i.resources {
-		launchr.Term().Printfln("- %s", resource)
+	for _, key := range i.resources.Keys() {
+		v, ok := i.resources.Get(key)
+		if !ok {
+			continue
+		}
+		launchr.Term().Printfln("- %s", v.GetName())
 	}
 }
 
@@ -84,7 +96,7 @@ func (i *TimelineResourcesItem) Print() {
 type TimelineVariablesItem struct {
 	version   string
 	commit    string
-	variables map[string]*Variable
+	variables *OrderedMap[*Variable]
 	date      time.Time
 }
 
@@ -94,7 +106,7 @@ func NewTimelineVariablesItem(version, commit string, date time.Time) *TimelineV
 		version:   version,
 		commit:    commit,
 		date:      date,
-		variables: make(map[string]*Variable),
+		variables: NewOrderedMap[*Variable](),
 	}
 }
 
@@ -115,21 +127,29 @@ func (i *TimelineVariablesItem) GetDate() time.Time {
 
 // AddVariable pushes [Variable] into timeline item.
 func (i *TimelineVariablesItem) AddVariable(v *Variable) {
-	i.variables[v.GetName()] = v
+	i.variables.Set(v.GetName(), v)
 }
 
 // GetVariables returns [Variable] map of timeline.
-func (i *TimelineVariablesItem) GetVariables() map[string]*Variable {
+func (i *TimelineVariablesItem) GetVariables() *OrderedMap[*Variable] {
 	return i.variables
 }
 
 // Merge allows to merge other timeline item variables.
 func (i *TimelineVariablesItem) Merge(item TimelineItem) {
 	if v2, ok := item.(*TimelineVariablesItem); ok {
-		for k, v := range v2.variables {
-			if _, ok = i.variables[k]; !ok {
-				i.variables[k] = v
+		for _, key := range v2.variables.Keys() {
+			_, exists := i.variables.Get(key)
+			if exists {
+				continue
 			}
+
+			itemVar, exists := v2.variables.Get(key)
+			if !exists {
+				continue
+			}
+
+			i.variables.Set(key, itemVar)
 		}
 	}
 }
@@ -138,8 +158,12 @@ func (i *TimelineVariablesItem) Merge(item TimelineItem) {
 func (i *TimelineVariablesItem) Print() {
 	launchr.Term().Printfln("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
 	launchr.Term().Printf("Variable List:\n")
-	for variable := range i.variables {
-		launchr.Term().Printfln("- %s", variable)
+	for _, key := range i.variables.Keys() {
+		v, ok := i.variables.Get(key)
+		if !ok {
+			continue
+		}
+		launchr.Term().Printfln("- %s", v.GetName())
 	}
 }
 
