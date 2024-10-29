@@ -372,6 +372,8 @@ func (s *SyncAction) ensureResourceIsVersioned(resourceVersion, resourceMetaPath
 //}
 
 func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
+	//launchr.Log().Debug("find variable update: var, path", "var", variable.GetName(), "path", variable.GetPath())
+
 	// @TODO look for several vars during iteration?
 	ref, err := s.ensureVariableIsVersioned(variable, repo)
 	if err != nil {
@@ -479,6 +481,8 @@ func (s *SyncAction) ensureVariableIsVersioned(variable *sync.Variable, repo *gi
 }
 
 func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
+	//launchr.Log().Debug("find variable delete: var, path", "var", variable.GetName(), "path", variable.GetPath())
+
 	// @TODO look for several vars during iteration?
 	// @TODO ensure variable existed at first place, before starting to search.
 

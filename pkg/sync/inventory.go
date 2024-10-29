@@ -506,6 +506,7 @@ func (i *Inventory) pushRequiredVariables(requiredMap map[string]map[string]bool
 }
 
 func (i *Inventory) crawlVariableUsage(variable *Variable, dependents map[string]*Variable) error {
+	//@TODO crawl several variables
 	var files []string
 	var err error
 
@@ -692,7 +693,14 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 		var sourceData map[string]any
 		errMarshal := yaml.Unmarshal(sourceVariables, &sourceData)
 		if errMarshal != nil {
-			return variables, errMarshal
+			if !strings.Contains(errMarshal.Error(), "already defined at line") {
+				return variables, errMarshal
+			}
+
+			sourceData, errMarshal = UnmarshallFixDuplicates(sourceVariables)
+			if err != nil {
+				return variables, errMarshal
+			}
 		}
 
 		for k, v := range sourceData {
@@ -856,6 +864,18 @@ func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any
 	}
 
 	err = yaml.Unmarshal(rawData, &data)
+	if err != nil {
+		if !strings.Contains(err.Error(), "already defined at line") {
+			return data, err
+		}
+
+		launchr.Log().Warn("duplicate found, parsing YAML file manually")
+		data, err = UnmarshallFixDuplicates(rawData)
+		if err != nil {
+			return data, err
+		}
+	}
+
 	return data, err
 }
 
@@ -884,6 +904,18 @@ func LoadVariablesFileFromBytes(input []byte, vaultPassword string, isVault bool
 	}
 
 	err = yaml.Unmarshal(rawData, &data)
+	if err != nil {
+		if !strings.Contains(err.Error(), "already defined at line") {
+			return data, err
+		}
+
+		launchr.Log().Warn("duplicate found, parsing YAML file manually")
+		data, err = UnmarshallFixDuplicates(rawData)
+		if err != nil {
+			return data, err
+		}
+	}
+
 	return data, err
 }
 
