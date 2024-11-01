@@ -96,10 +96,10 @@ type Inventory struct {
 	ResourcesCrawler *ResourcesCrawler
 
 	//internal
-	resourcesMap  *OrderedMap[bool]
-	topOrder      []string
-	requiredMap   map[string]*OrderedMap[bool]
-	dependencyMap map[string]*OrderedMap[bool]
+	resourcesMap *OrderedMap[bool]
+	requiredBy   map[string]*OrderedMap[bool]
+	dependsOn    map[string]*OrderedMap[bool]
+	topOrder     []string
 
 	// options
 	sourceDir string
@@ -113,8 +113,8 @@ func NewInventory(sourceDir string) (*Inventory, error) {
 		sourceDir:        sourceDir,
 		ResourcesCrawler: NewResourcesCrawler(sourceDir),
 		resourcesMap:     NewOrderedMap[bool](),
-		requiredMap:      make(map[string]*OrderedMap[bool]),
-		dependencyMap:    make(map[string]*OrderedMap[bool]),
+		requiredBy:       make(map[string]*OrderedMap[bool]),
+		dependsOn:        make(map[string]*OrderedMap[bool]),
 	}
 
 	err := inv.Init()
@@ -139,16 +139,14 @@ func (i *Inventory) GetResourcesOrder() []string {
 	return i.topOrder
 }
 
-// GetRequiredMap returns the required map, which represents the dependencies between resources in the Inventory.
-// The map is of type `map[string]map[string]bool`, where the keys are the resource names and the values are maps of dependent resource names.
-func (i *Inventory) GetRequiredMap() map[string]*OrderedMap[bool] {
-	return i.requiredMap
+// GetRequiredByMap returns the required by map, which represents the `required by` dependencies between resources in the Inventory.
+func (i *Inventory) GetRequiredByMap() map[string]*OrderedMap[bool] {
+	return i.requiredBy
 }
 
-// GetDependenciesMap returns the map, which represents the dependencies between resources in the Inventory.
-// The map is of type `map[string]map[string]bool`, where the keys are the resource names and the values are maps of dependent resource names.
-func (i *Inventory) GetDependenciesMap() map[string]*OrderedMap[bool] {
-	return i.dependencyMap
+// GetDependsOnMap returns the map, which represents the 'depends on' dependencies between resources in the Inventory.
+func (i *Inventory) GetDependsOnMap() map[string]*OrderedMap[bool] {
+	return i.dependsOn
 }
 
 func (i *Inventory) buildResourcesGraph() error {
@@ -209,19 +207,19 @@ func (i *Inventory) buildResourcesGraph() error {
 				return nil
 			}
 
-			if i.dependencyMap[resourceName] == nil {
-				i.dependencyMap[resourceName] = NewOrderedMap[bool]()
+			if i.dependsOn[resourceName] == nil {
+				i.dependsOn[resourceName] = NewOrderedMap[bool]()
 			}
 
 			for _, dep := range deps {
 				if dep.IncludeRole.Name != "" {
 					depName := strings.ReplaceAll(dep.IncludeRole.Name, ".", "__")
-					if i.requiredMap[depName] == nil {
-						i.requiredMap[depName] = NewOrderedMap[bool]()
+					if i.requiredBy[depName] == nil {
+						i.requiredBy[depName] = NewOrderedMap[bool]()
 					}
 
-					i.requiredMap[depName].Set(resourceName, true)
-					i.dependencyMap[resourceName].Set(depName, true)
+					i.requiredBy[depName].Set(resourceName, true)
+					i.dependsOn[resourceName].Set(depName, true)
 				}
 			}
 		}
@@ -233,15 +231,15 @@ func (i *Inventory) buildResourcesGraph() error {
 	}
 
 	platformItems := NewOrderedMap[bool]()
-	for resourceName := range i.requiredMap {
-		if _, ok := i.dependencyMap[resourceName]; !ok {
+	for resourceName := range i.requiredBy {
+		if _, ok := i.dependsOn[resourceName]; !ok {
 			platformItems.Set(resourceName, true)
 		}
 	}
 
-	i.requiredMap[rootPlatform] = platformItems
+	i.requiredBy[rootPlatform] = platformItems
 	graph := topsort.NewGraph()
-	for platform, resources := range i.requiredMap {
+	for platform, resources := range i.requiredBy {
 		for _, resource := range resources.Keys() {
 			graph.AddNode(resource)
 			edgeErr := graph.AddEdge(platform, resource)
@@ -491,6 +489,41 @@ func (i *Inventory) SearchVariablesAffectedResources(variables []*Variable) (*Or
 	}
 
 	return resources, resourceVariablesMap, nil
+}
+
+// GetRequiredByResources returns list of resources which depend on argument resource (directly or not).
+func (i *Inventory) GetRequiredByResources(resourceName string, depth int8) map[string]bool {
+	return i.lookupDependencies(resourceName, i.GetRequiredByMap(), depth)
+}
+
+// GetDependsOnResources returns list of resources which are used by argument resource (directly or not).
+func (i *Inventory) GetDependsOnResources(resourceName string, depth int8) map[string]bool {
+	return i.lookupDependencies(resourceName, i.GetDependsOnMap(), depth)
+}
+
+func (i *Inventory) lookupDependencies(resourceName string, resourcesMap map[string]*OrderedMap[bool], depth int8) map[string]bool {
+	result := make(map[string]bool)
+	if m, ok := resourcesMap[resourceName]; ok {
+		for _, item := range m.Keys() {
+			result[item] = true
+			i.lookupDependenciesRecursively(item, resourcesMap, result, 1, depth)
+		}
+	}
+
+	return result
+}
+
+func (i *Inventory) lookupDependenciesRecursively(resourceName string, resourcesMap map[string]*OrderedMap[bool], result map[string]bool, depth, limit int8) {
+	if depth == limit {
+		return
+	}
+
+	if m, ok := resourcesMap[resourceName]; ok {
+		for _, item := range m.Keys() {
+			result[item] = true
+			i.lookupDependenciesRecursively(item, resourcesMap, result, depth+1, limit)
+		}
+	}
 }
 
 func (i *Inventory) pushRequiredVariables(requiredMap map[string]map[string]bool) {
