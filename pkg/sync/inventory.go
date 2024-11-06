@@ -97,6 +97,7 @@ type Inventory struct {
 
 	//internal
 	resourcesMap  *OrderedMap[bool]
+	topOrder      []string
 	requiredMap   map[string]*OrderedMap[bool]
 	dependencyMap map[string]*OrderedMap[bool]
 
@@ -135,7 +136,7 @@ func (i *Inventory) GetResourcesMap() *OrderedMap[bool] {
 
 // GetResourcesOrder returns the order of resources in the inventory.
 func (i *Inventory) GetResourcesOrder() []string {
-	return i.resourcesMap.Keys()
+	return i.topOrder
 }
 
 // GetRequiredMap returns the required map, which represents the dependencies between resources in the Inventory.
@@ -260,6 +261,7 @@ func (i *Inventory) buildResourcesGraph() error {
 		order[y], order[j] = order[j], order[y]
 	}
 
+	i.topOrder = order
 	i.resourcesMap.OrderBy(order)
 
 	return nil
