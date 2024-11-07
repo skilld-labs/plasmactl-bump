@@ -212,6 +212,7 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath string, repo *git.Repository) (*sync.TimelineResourcesItem, error) {
 	ref, err := s.ensureResourceIsVersioned(resourceVersion, resourceMetaPath, repo)
 	if err != nil {
+		launchr.Log().Error("1")
 		return nil, err
 	}
 
@@ -221,6 +222,7 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 	// start from the latest commit and iterate to the past
 	cIter, err := repo.Log(&git.LogOptions{From: ref.Hash()})
 	if err != nil {
+		launchr.Log().Error("2")
 		return nil, err
 	}
 
@@ -269,6 +271,7 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 	})
 
 	if err != nil {
+		launchr.Log().Error("3")
 		return nil, err
 	}
 
@@ -711,6 +714,7 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.OrderedMap[*sync.Resource], namespaceResources *sync.OrderedMap[bool], timeline []sync.TimelineItem, gitPath string) ([]sync.TimelineItem, error) {
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
+		launchr.Log().Debug("error opening git by path", "path", gitPath)
 		return nil, err
 	}
 
@@ -728,6 +732,7 @@ func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.Ordered
 
 		buildBaseVersion, buildFullVersion, err := buildResource.GetBaseVersion()
 		if err != nil {
+			launchr.Log().Debug("not possible to get version for resource", "resource", resourceName)
 			return timeline, err
 		}
 
@@ -736,6 +741,7 @@ func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.Ordered
 		if !artifactResource.IsValidResource() {
 			ti, errTi := s.findResourceChangeTime(buildBaseVersion, buildResource.BuildMetaPath(), repo)
 			if errTi != nil {
+				launchr.Log().Debug("error building timeline item (new) for resource", "resource", resourceName)
 				return timeline, errTi
 			}
 			ti.AddResource(buildResource)
@@ -749,6 +755,7 @@ func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.Ordered
 
 		artifactBaseVersion, artifactFullVersion, err := artifactResource.GetBaseVersion()
 		if err != nil {
+			launchr.Log().Debug("error getting base version for resource", "resource", resourceName)
 			return timeline, err
 		}
 
@@ -756,6 +763,7 @@ func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.Ordered
 		if buildBaseVersion != artifactBaseVersion {
 			ti, errTi := s.findResourceChangeTime(buildBaseVersion, buildResource.BuildMetaPath(), repo)
 			if errTi != nil {
+				launchr.Log().Debug("error building timeline item (update) for resource", "resource", resourceName)
 				return timeline, errTi
 			}
 			ti.AddResource(buildResource)
