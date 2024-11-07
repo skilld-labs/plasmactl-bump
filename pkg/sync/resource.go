@@ -271,6 +271,22 @@ func (m *OrderedMap[T]) Keys() []string {
 // OrderBy updates the order of keys in the [OrderedMap] based on the orderList.
 func (m *OrderedMap[T]) OrderBy(orderList []string) {
 	var newKeys []string
+	var remainingKeys []string
+
+keysLoop:
+	for _, key := range m.keys {
+		isInOrderList := false
+		for _, orderKey := range orderList {
+			if key == orderKey {
+				isInOrderList = true
+				continue keysLoop
+			}
+		}
+
+		if !isInOrderList {
+			remainingKeys = append(remainingKeys, key)
+		}
+	}
 
 	for _, item := range orderList {
 		_, ok := m.Get(item)
@@ -279,6 +295,7 @@ func (m *OrderedMap[T]) OrderBy(orderList []string) {
 		}
 	}
 
+	newKeys = append(newKeys, remainingKeys...)
 	m.keys = newKeys
 }
 
