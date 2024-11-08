@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/launchrctl/launchr"
 
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/repository"
@@ -76,7 +77,7 @@ func (a *Artifact) Get(username, password string) error {
 
 		archivePath = artifactPath
 	} else {
-		hash, errHash := a.bumper.GetGit().ResolveRevision("HEAD")
+		hash, errHash := a.bumper.GetGit().ResolveRevision(plumbing.Revision(plumbing.HEAD))
 		if errHash != nil {
 			return errHash
 		}

@@ -119,6 +119,10 @@ func NewInventory(sourceDir string) (*Inventory, error) {
 
 	err := inv.Init()
 
+	if err != nil {
+		err = fmt.Errorf("inventory init error (%s) > %w", sourceDir, err)
+	}
+
 	return inv, err
 }
 
