@@ -58,7 +58,7 @@ type SyncAction struct {
 func (s *SyncAction) Execute(username, password string) error {
 	err := s.prepareArtifact(username, password)
 	if err != nil {
-		return err
+		return fmt.Errorf("preparing artifact > %w", err)
 	}
 
 	modifiedFiles, err := sync.CompareDirs(s.buildDir, s.comparisonDir, sync.InventoryExcluded)
@@ -96,7 +96,7 @@ func (s *SyncAction) prepareArtifact(username, password string) error {
 		if errors.Is(errGet, keyring.ErrEmptyPass) {
 			return errGet
 		} else if !errors.Is(errGet, keyring.ErrNotFound) {
-			launchr.Log().Debug("error", "error", errGet)
+			launchr.Log().Debug("keyring error", "error", errGet)
 			return errMalformedKeyring
 		}
 
@@ -145,7 +145,7 @@ func (s *SyncAction) getVaultPass(vaultpass string) (keyring.KeyValueItem, error
 		if errors.Is(errGet, keyring.ErrEmptyPass) {
 			return keyValueItem, errGet
 		} else if !errors.Is(errGet, keyring.ErrNotFound) {
-			launchr.Log().Debug("error", "error", errGet)
+			launchr.Log().Debug("keyring error", "error", errGet)
 			return keyValueItem, errMalformedKeyring
 		}
 
@@ -179,7 +179,7 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 	// build timeline and resources to copy.
 	timeline, history, err := s.buildTimeline(inv, modifiedFiles)
 	if err != nil {
-		return err
+		return fmt.Errorf("building timeline > %w", err)
 	}
 
 	if len(timeline) == 0 {
@@ -190,13 +190,13 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 	// sort and iterate timeline, create propagation map.
 	toPropagate, resourceVersionMap, err := s.buildPropagationMap(inv, timeline)
 	if err != nil {
-		return err
+		return fmt.Errorf("building propagation map > %w", err)
 	}
 
 	// copy history from artifact.
 	err = s.copyHistory(history)
 	if err != nil {
-		return err
+		return fmt.Errorf("history copy > %w", err)
 	}
 
 	if s.listImpacted {
@@ -205,14 +205,17 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 
 	// update resources.
 	err = s.updateResources(toPropagate, resourceVersionMap)
+	if err != nil {
+		return fmt.Errorf("propagate > %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath string, repo *git.Repository) (*sync.TimelineResourcesItem, error) {
 	ref, err := s.ensureResourceIsVersioned(resourceVersion, resourceMetaPath, repo)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("versioned check > %w", err)
 	}
 
 	//@TODO use git log -S'value' -- path/to/file instead of full history search?
@@ -228,10 +231,10 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 	var prevHashTime time.Time
 	var author string
 	err = cIter.ForEach(func(c *object.Commit) error {
-		file, err := c.File(resourceMetaPath)
-		if err != nil {
-			if !errors.Is(err, object.ErrFileNotFound) {
-				return err
+		file, errIt := c.File(resourceMetaPath)
+		if errIt != nil {
+			if !errors.Is(errIt, object.ErrFileNotFound) {
+				return fmt.Errorf("file open %s > %w", resourceMetaPath, errIt)
 			}
 			if prevHash == "" {
 				prevHash = c.Hash.String()
@@ -242,19 +245,19 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 			return storer.ErrStop
 		}
 
-		reader, err := file.Blob.Reader()
-		if err != nil {
-			return err
+		reader, errIt := file.Blob.Reader()
+		if errIt != nil {
+			return fmt.Errorf("can't read %s > %w", resourceMetaPath, errIt)
 		}
 
-		contents, err := io.ReadAll(reader)
-		if err != nil {
-			return err
+		contents, errIt := io.ReadAll(reader)
+		if errIt != nil {
+			return fmt.Errorf("can't read %s > %w", resourceMetaPath, errIt)
 		}
 
-		metaFile, err := sync.LoadYamlFileFromBytes(contents)
-		if err != nil {
-			return err
+		metaFile, errIt := sync.LoadYamlFileFromBytes(contents)
+		if errIt != nil {
+			return fmt.Errorf("YAML load %s > %w", resourceMetaPath, errIt)
 		}
 
 		prevVer := sync.GetMetaVersion(metaFile)
@@ -298,17 +301,17 @@ func (s *SyncAction) ensureResourceIsVersioned(resourceVersion, resourceMetaPath
 
 	reader, err := headMeta.Blob.Reader()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't read %s > %w", resourceMetaPath, err)
 	}
 
 	contents, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't read %s > %w", resourceMetaPath, err)
 	}
 
 	metaFile, err := sync.LoadYamlFileFromBytes(contents)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("YAML load %s > %w", resourceMetaPath, err)
 	}
 
 	headVersion := sync.GetMetaVersion(metaFile)
@@ -372,12 +375,10 @@ func (s *SyncAction) ensureResourceIsVersioned(resourceVersion, resourceMetaPath
 //}
 
 func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
-	//launchr.Log().Debug("find variable update: var, path", "var", variable.GetName(), "path", variable.GetPath())
-
 	// @TODO look for several vars during iteration?
 	ref, err := s.ensureVariableIsVersioned(variable, repo)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("versioned check > %w", err)
 	}
 
 	//@TODO use git log -S'value' -- path/to/file instead of full history search?
@@ -391,10 +392,10 @@ func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.R
 	var currentHash string
 	var currentHashTime time.Time
 	err = cIter.ForEach(func(c *object.Commit) error {
-		file, err := c.File(variable.GetPath())
-		if err != nil {
-			if !errors.Is(err, object.ErrFileNotFound) {
-				return err
+		file, errIt := c.File(variable.GetPath())
+		if errIt != nil {
+			if !errors.Is(errIt, object.ErrFileNotFound) {
+				return fmt.Errorf("file open %s > %w", variable.GetPath(), errIt)
 			}
 			if currentHash == "" {
 				currentHash = c.Hash.String()
@@ -404,28 +405,30 @@ func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.R
 			return storer.ErrStop
 		}
 
-		reader, err := file.Blob.Reader()
-		if err != nil {
-			return err
+		reader, errIt := file.Blob.Reader()
+		if errIt != nil {
+			return fmt.Errorf("can't read %s > %w", variable.GetPath(), errIt)
 		}
-		contents, err := io.ReadAll(reader)
-		if err != nil {
-			return err
+
+		contents, errIt := io.ReadAll(reader)
+		if errIt != nil {
+			return fmt.Errorf("can't read %s > %w", variable.GetPath(), errIt)
 		}
-		varFile, err := sync.LoadVariablesFileFromBytes(contents, s.vaultPass, variable.IsVault())
-		if err != nil {
-			return err
+
+		varFile, errIt := sync.LoadVariablesFileFromBytes(contents, s.vaultPass, variable.IsVault())
+		if errIt != nil {
+			return fmt.Errorf("YAML load %s > %w", variable.GetPath(), errIt)
 		}
 
 		prevVar, exists := varFile[variable.GetName()]
 		if !exists {
-			//cli.Println("Variable didn't exist before, take current hash as version")
+			// Variable didn't exist before, take current hash as version
 			return storer.ErrStop
 		}
 
 		prevVarHash := sync.HashString(fmt.Sprint(prevVar))
 		if variable.GetHash() != prevVarHash {
-			//cli.Println("Variable exists, hashes don't match, stop iterating")
+			// Variable exists, hashes don't match, stop iterating
 			return storer.ErrStop
 		}
 
@@ -451,20 +454,22 @@ func (s *SyncAction) ensureVariableIsVersioned(variable *sync.Variable, repo *gi
 	}
 	headVarsFile, err := headCommit.File(variable.GetPath())
 	if err != nil {
-		return nil, fmt.Errorf("variable %s file %s doesn't exist in HEAD", variable.GetName(), variable.GetPath())
+		return nil, fmt.Errorf("variables' %s file %s doesn't exist in HEAD", variable.GetName(), variable.GetPath())
 	}
 
 	reader, err := headVarsFile.Blob.Reader()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't read %s > %w", variable.GetPath(), err)
 	}
+
 	contents, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't read %s > %w", variable.GetPath(), err)
 	}
+
 	varFile, err := sync.LoadVariablesFileFromBytes(contents, s.vaultPass, variable.IsVault())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("YAML load %s > %w", variable.GetPath(), err)
 	}
 
 	headVar, exists := varFile[variable.GetName()]
@@ -481,8 +486,6 @@ func (s *SyncAction) ensureVariableIsVersioned(variable *sync.Variable, repo *gi
 }
 
 func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git.Repository) (*sync.TimelineVariablesItem, error) {
-	//launchr.Log().Debug("find variable delete: var, path", "var", variable.GetName(), "path", variable.GetPath())
-
 	// @TODO look for several vars during iteration?
 	// @TODO ensure variable existed at first place, before starting to search.
 
@@ -509,15 +512,15 @@ func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git
 
 		reader, errIt := file.Blob.Reader()
 		if errIt != nil {
-			return errIt
+			return fmt.Errorf("can't read %s > %w", variable.GetPath(), errIt)
 		}
 		contents, errIt := io.ReadAll(reader)
 		if errIt != nil {
-			return errIt
+			return fmt.Errorf("can't read %s > %w", variable.GetPath(), errIt)
 		}
 		varFile, errIt := sync.LoadVariablesFileFromBytes(contents, s.vaultPass, variable.IsVault())
 		if errIt != nil {
-			return errIt
+			return fmt.Errorf("YAML load %s > %w", variable.GetPath(), errIt)
 		}
 
 		_, exists := varFile[variable.GetName()]
@@ -619,8 +622,8 @@ func (s *SyncAction) getResourcesMaps() (map[string]*sync.OrderedMap[bool], map[
 			}
 
 			if baseVersion != buildVersion {
-				launchr.Log().Debug("removing resource (version) from namespace as other version was used during composition",
-					"resource", resourceName, "version", baseVersion, "namespace", conflictingNamespace)
+				launchr.Log().Debug("removing resource from namespace as other version was used during composition",
+					"resource", resourceName, "version", baseVersion, "buildVersion", buildVersion, "namespace", conflictingNamespace)
 				resourcesMap[conflictingNamespace].Unset(resourceName)
 			} else {
 				sameVersionNamespaces = append(sameVersionNamespaces, conflictingNamespace)
@@ -679,14 +682,14 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 		launchr.Term().Info().Printfln("Gathering domain and package resources")
 		resourcesMap, packagePathMap, err := s.getResourcesMaps()
 		if err != nil {
-			return timeline, nil, err
+			return timeline, nil, fmt.Errorf("build resource map > %w", err)
 		}
 
 		// Find new or updated resources in diff.
 		launchr.Term().Info().Printfln("Checking domain resources")
 		timeline, err = s.populateTimelineResources(allDiffResources, resourcesMap[domainNamespace], timeline, s.domainDir)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("iteraring domain resources > %w", err)
 		}
 
 		// Iterate each package, find new or updated resources in diff.
@@ -694,7 +697,7 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 		for name, packagePath := range packagePathMap {
 			timeline, err = s.populateTimelineResources(allDiffResources, resourcesMap[name], timeline, packagePath)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, fmt.Errorf("iteraring package %s resources > %w", name, err)
 			}
 		}
 	}
@@ -702,7 +705,7 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 	launchr.Term().Info().Printfln("Checking variables change")
 	timeline, err := s.populateTimelineVars(buildInv, modifiedFiles, timeline, s.domainDir)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("iteraring variables > %w", err)
 	}
 
 	return timeline, allDiffResources, nil
@@ -711,7 +714,7 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.OrderedMap[*sync.Resource], namespaceResources *sync.OrderedMap[bool], timeline []sync.TimelineItem, gitPath string) ([]sync.TimelineItem, error) {
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s - %w", gitPath, err)
 	}
 
 	for _, resourceName := range namespaceResources.Keys() {
@@ -832,7 +835,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 	sync.SortTimeline(timeline)
 	launchr.Term().Info().Printfln("Iterating timeline:")
 	for _, item := range timeline {
-		launchr.Log().Debug("version date commit", "version", item.GetVersion(), "date", item.GetDate(), "commit", item.GetCommit())
+		launchr.Log().Debug("timeline item", "version", item.GetVersion(), "date", item.GetDate(), "commit", item.GetCommit())
 		switch i := item.(type) {
 		case *sync.TimelineResourcesItem:
 			resources := i.GetResources()
@@ -865,7 +868,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 			variables.SortKeysAlphabetically()
 			resources, _, err := buildInv.SearchVariablesAffectedResources(variables.ToList())
 			if err != nil {
-				return toPropagate, resourceVersionMap, err
+				return toPropagate, resourceVersionMap, fmt.Errorf("search variable affected resources > %w", err)
 			}
 
 			launchr.Term().Info().Printfln("Variables:")
@@ -941,8 +944,8 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedMap[*sync.Resource
 
 		newVersion := s.composeVersion(currentVersion, resourceVersionMap[r.GetName()])
 		if baseVersion == resourceVersionMap[r.GetName()] {
-			launchr.Log().Debug("base - current - propagate - new",
-				"base", baseVersion, "current", currentVersion, "propagate", resourceVersionMap[r.GetName()], "new", newVersion)
+			launchr.Log().Debug("skip identical",
+				"baseVersion", baseVersion, "currentVersion", currentVersion, "propagateVersion", resourceVersionMap[r.GetName()], "newVersion", newVersion)
 			launchr.Term().Warning().Printfln("- skip %s (identical versions)", r.GetName())
 			continue
 		}
