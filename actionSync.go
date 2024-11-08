@@ -200,7 +200,7 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 	}
 
 	if s.listImpacted {
-		s.printResources("List of impacted resources:", toPropagate)
+		s.showImpacted(inv, timeline, toPropagate)
 	}
 
 	// update resources.
@@ -847,7 +847,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 				}
 
 				launchr.Term().Info().Printfln("Collecting %s dependencies:", r.GetName())
-				err := s.propagateResourceDeps(r, i.GetVersion(), toPropagate, buildInv.GetRequiredMap(), resourceVersionMap)
+				err := s.propagateResourceDeps(r, i.GetVersion(), toPropagate, buildInv.GetRequiredByMap(), resourceVersionMap)
 				if err != nil {
 					return toPropagate, resourceVersionMap, err
 				}
@@ -886,7 +886,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 					continue
 				}
 
-				s.propagateDepsRecursively(r, version, toPropagate, buildInv.GetRequiredMap(), resourceVersionMap)
+				s.propagateDepsRecursively(r, version, toPropagate, buildInv.GetRequiredByMap(), resourceVersionMap)
 			}
 		}
 	}
@@ -923,6 +923,55 @@ func (s *SyncAction) copyHistory(history *sync.OrderedMap[*sync.Resource]) error
 	}
 
 	return nil
+}
+
+func (s *SyncAction) showImpacted(inv *sync.Inventory, timeline []sync.TimelineItem, propagated *sync.OrderedMap[*sync.Resource]) {
+	result := sync.NewOrderedMap[bool]()
+	timelineResources := sync.NewOrderedMap[bool]()
+
+	for _, item := range timeline {
+		switch i := item.(type) {
+		case *sync.TimelineResourcesItem:
+			resources := i.GetResources()
+			for _, mrn := range resources.Keys() {
+				timelineResources.Set(mrn, true)
+			}
+		}
+	}
+
+iterateTimelineResources:
+	for _, mrn := range timelineResources.Keys() {
+		deps := inv.GetRequiredByResources(mrn, -1)
+		for d := range deps {
+			if _, ok := propagated.Get(d); ok {
+				continue iterateTimelineResources
+			}
+
+			if _, ok := timelineResources.Get(d); ok {
+				continue iterateTimelineResources
+			}
+		}
+
+		result.Set(mrn, true)
+	}
+
+iteratePropagate:
+	for _, mrn := range propagated.Keys() {
+		deps := inv.GetRequiredByResources(mrn, -1)
+		for d := range deps {
+			if _, ok := propagated.Get(d); ok {
+				continue iteratePropagate
+			}
+		}
+
+		result.Set(mrn, true)
+	}
+	result.SortKeysAlphabetically()
+
+	launchr.Term().Info().Printf("List of impacted resources:\n")
+	for _, k := range result.Keys() {
+		launchr.Term().Printf("- %s\n", k)
+	}
 }
 
 func (s *SyncAction) updateResources(toPropagate *sync.OrderedMap[*sync.Resource], resourceVersionMap map[string]string) error {
@@ -990,36 +1039,6 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedMap[*sync.Resource
 
 	return nil
 }
-
-func (s *SyncAction) printResources(message string, resources *sync.OrderedMap[*sync.Resource]) {
-	if message != "" {
-		launchr.Term().Info().Println(message)
-	}
-
-	for _, key := range resources.Keys() {
-		value, _ := resources.Get(key)
-		launchr.Term().Printfln("- %s", value.GetName())
-	}
-}
-
-//
-//func (s *SyncAction) printVariablesInfo(rvm map[string]map[string]bool) {
-//	if len(rvm) == 0 {
-//		return
-//	}
-//
-//	info := make(map[string][]string)
-//	for resourceName, vars := range rvm {
-//		for variable := range vars {
-//			info[variable] = append(info[variable], resourceName)
-//		}
-//	}
-//
-//	log.Info("Modified variables in diff (group_vars and vaults):")
-//	for k, v := range info {
-//		log.Info("- %s used in: %s", k, strings.Join(v, ", "))
-//	}
-//}
 
 func (s *SyncAction) propagateResourceDeps(resource *sync.Resource, version string, toPropagate *sync.OrderedMap[*sync.Resource], resourcesGraph map[string]*sync.OrderedMap[bool], resourceVersionMap map[string]string) error {
 	if itemsMap, ok := resourcesGraph[resource.GetName()]; ok {
