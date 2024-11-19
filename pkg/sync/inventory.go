@@ -769,7 +769,7 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 // It scans each file and checks if the variables in the names map are present in the resources map for that file. If a variable is missing, it adds it to the toIterate slice.
 // It then scans each line of the file and checks if it contains any of the variables in the toIterate slice. If a variable is found, it adds it to the foundList map.
 // After scanning all the files, it updates the resources map with the variables found in each file.
-func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[string]*Variable, resources map[string]map[string]bool) error {
+func (cr *ResourcesCrawler) SearchVariableResources(platform string, variables map[string]*Variable, resources map[string]map[string]bool) error {
 	var err error
 	searchPlatform := platform
 	if searchPlatform == rootPlatform {
@@ -802,7 +802,7 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 
 	regExpressions := make(map[string]*regexp.Regexp)
 
-	for name := range names {
+	for name := range variables {
 		regexName := regexp.QuoteMeta(name)
 		searchRegexp, err := regexp.Compile(fmt.Sprintf(variablePattern, regexName))
 		if err != nil {
@@ -815,14 +815,14 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, names map[s
 		sourcePath := filepath.Clean(filepath.Join(cr.rootDir, file))
 		f, err := os.Open(sourcePath)
 		if err != nil {
-			launchr.Log().Debug("file - msg", "file", file, "msg", err)
+			launchr.Log().Debug("error opening file for variables usage", "file", file, "msg", err)
 			return err
 		}
 
 		s := bufio.NewScanner(f)
 
 		var toIterate []string
-		for name := range names {
+		for name := range variables {
 			if _, ok := resources[file][name]; !ok {
 				toIterate = append(toIterate, name)
 			}
