@@ -193,18 +193,12 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 		return fmt.Errorf("building propagation map > %w", err)
 	}
 
-	// copy history from artifact.
-	err = s.copyHistory(history)
-	if err != nil {
-		return fmt.Errorf("history copy > %w", err)
-	}
-
 	if s.listImpacted {
 		s.showImpacted(inv, timeline, toPropagate)
 	}
 
 	// update resources.
-	err = s.updateResources(toPropagate, resourceVersionMap)
+	err = s.updateResources(resourceVersionMap, toPropagate, history)
 	if err != nil {
 		return fmt.Errorf("propagate > %w", err)
 	}
@@ -942,11 +936,12 @@ iteratePropagate:
 	}
 }
 
-func (s *SyncAction) updateResources(toPropagate *sync.OrderedMap[*sync.Resource], resourceVersionMap map[string]string) error {
+func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPropagate, history *sync.OrderedMap[*sync.Resource]) error {
 	var sortList []string
 	updateMap := make(map[string]map[string]string)
 	stopPropagation := false
 
+	launchr.Term().Info().Printfln("Filtering identical versions:")
 	for _, key := range toPropagate.Keys() {
 		r, _ := toPropagate.Get(key)
 		baseVersion, currentVersion, errVersion := r.GetBaseVersion()
@@ -978,6 +973,12 @@ func (s *SyncAction) updateResources(toPropagate *sync.OrderedMap[*sync.Resource
 
 	if stopPropagation {
 		return errors.New("empty version has been detected, please check log")
+	}
+
+	// copy history from artifact.
+	err := s.copyHistory(history)
+	if err != nil {
+		return fmt.Errorf("history copy > %w", err)
 	}
 
 	if len(updateMap) == 0 {
