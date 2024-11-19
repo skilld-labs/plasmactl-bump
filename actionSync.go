@@ -215,7 +215,7 @@ func (s *SyncAction) propagate(modifiedFiles []string) error {
 func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath string, repo *git.Repository) (*sync.TimelineResourcesItem, error) {
 	ref, err := s.ensureResourceIsVersioned(resourceVersion, resourceMetaPath, repo)
 	if err != nil {
-		return nil, fmt.Errorf("versioned check > %w", err)
+		return nil, fmt.Errorf("ensure versioned > %w", err)
 	}
 
 	//@TODO use git log -S'value' -- path/to/file instead of full history search?
@@ -234,7 +234,7 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 		file, errIt := c.File(resourceMetaPath)
 		if errIt != nil {
 			if !errors.Is(errIt, object.ErrFileNotFound) {
-				return fmt.Errorf("file open %s > %w", resourceMetaPath, errIt)
+				return fmt.Errorf("open file %s in commit %s > %w", resourceMetaPath, c.Hash, errIt)
 			}
 			if prevHash == "" {
 				prevHash = c.Hash.String()
@@ -245,19 +245,9 @@ func (s *SyncAction) findResourceChangeTime(resourceVersion, resourceMetaPath st
 			return storer.ErrStop
 		}
 
-		reader, errIt := file.Blob.Reader()
+		metaFile, errIt := s.loadYamlFileFromBytes(file, resourceMetaPath)
 		if errIt != nil {
-			return fmt.Errorf("can't read %s > %w", resourceMetaPath, errIt)
-		}
-
-		contents, errIt := io.ReadAll(reader)
-		if errIt != nil {
-			return fmt.Errorf("can't read %s > %w", resourceMetaPath, errIt)
-		}
-
-		metaFile, errIt := sync.LoadYamlFileFromBytes(contents)
-		if errIt != nil {
-			return fmt.Errorf("YAML load %s > %w", resourceMetaPath, errIt)
+			return fmt.Errorf("commit %s > %w", c.Hash, errIt)
 		}
 
 		prevVer := sync.GetMetaVersion(metaFile)
@@ -299,24 +289,14 @@ func (s *SyncAction) ensureResourceIsVersioned(resourceVersion, resourceMetaPath
 		return nil, fmt.Errorf("meta %s doesn't exist in HEAD commit", resourceMetaPath)
 	}
 
-	reader, err := headMeta.Blob.Reader()
+	metaFile, err := s.loadYamlFileFromBytes(headMeta, resourceMetaPath)
 	if err != nil {
-		return nil, fmt.Errorf("can't read %s > %w", resourceMetaPath, err)
-	}
-
-	contents, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("can't read %s > %w", resourceMetaPath, err)
-	}
-
-	metaFile, err := sync.LoadYamlFileFromBytes(contents)
-	if err != nil {
-		return nil, fmt.Errorf("YAML load %s > %w", resourceMetaPath, err)
+		return nil, fmt.Errorf("%w", err)
 	}
 
 	headVersion := sync.GetMetaVersion(metaFile)
 	if resourceVersion != headVersion {
-		return nil, fmt.Errorf("version of %s doesn't match any existing commit", resourceMetaPath)
+		return nil, fmt.Errorf("version from %s doesn't match any existing commit", resourceMetaPath)
 	}
 
 	return ref, nil
@@ -378,7 +358,7 @@ func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.R
 	// @TODO look for several vars during iteration?
 	ref, err := s.ensureVariableIsVersioned(variable, repo)
 	if err != nil {
-		return nil, fmt.Errorf("versioned check > %w", err)
+		return nil, fmt.Errorf("ensure versioned > %w", err)
 	}
 
 	//@TODO use git log -S'value' -- path/to/file instead of full history search?
@@ -395,7 +375,7 @@ func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.R
 		file, errIt := c.File(variable.GetPath())
 		if errIt != nil {
 			if !errors.Is(errIt, object.ErrFileNotFound) {
-				return fmt.Errorf("file open %s > %w", variable.GetPath(), errIt)
+				return fmt.Errorf("open file %s in commit %s > %w", variable.GetPath(), c.Hash, errIt)
 			}
 			if currentHash == "" {
 				currentHash = c.Hash.String()
@@ -405,19 +385,9 @@ func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.R
 			return storer.ErrStop
 		}
 
-		reader, errIt := file.Blob.Reader()
+		varFile, errIt := s.loadVariablesFileFromBytes(file, variable.GetPath(), variable.IsVault())
 		if errIt != nil {
-			return fmt.Errorf("can't read %s > %w", variable.GetPath(), errIt)
-		}
-
-		contents, errIt := io.ReadAll(reader)
-		if errIt != nil {
-			return fmt.Errorf("can't read %s > %w", variable.GetPath(), errIt)
-		}
-
-		varFile, errIt := sync.LoadVariablesFileFromBytes(contents, s.vaultPass, variable.IsVault())
-		if errIt != nil {
-			return fmt.Errorf("YAML load %s > %w", variable.GetPath(), errIt)
+			return fmt.Errorf("commit %s > %w", c.Hash, errIt)
 		}
 
 		prevVar, exists := varFile[variable.GetName()]
@@ -437,6 +407,10 @@ func (s *SyncAction) findVariableUpdateTime(variable *sync.Variable, repo *git.R
 		return nil
 	})
 
+	if err != nil {
+		return nil, err
+	}
+
 	tvi := sync.NewTimelineVariablesItem(currentHash[:13], currentHash, currentHashTime)
 
 	return tvi, err
@@ -454,32 +428,22 @@ func (s *SyncAction) ensureVariableIsVersioned(variable *sync.Variable, repo *gi
 	}
 	headVarsFile, err := headCommit.File(variable.GetPath())
 	if err != nil {
-		return nil, fmt.Errorf("variables' %s file %s doesn't exist in HEAD", variable.GetName(), variable.GetPath())
+		return nil, fmt.Errorf("file %s doesn't exist in HEAD", variable.GetPath())
 	}
 
-	reader, err := headVarsFile.Blob.Reader()
-	if err != nil {
-		return nil, fmt.Errorf("can't read %s > %w", variable.GetPath(), err)
-	}
-
-	contents, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("can't read %s > %w", variable.GetPath(), err)
-	}
-
-	varFile, err := sync.LoadVariablesFileFromBytes(contents, s.vaultPass, variable.IsVault())
-	if err != nil {
-		return nil, fmt.Errorf("YAML load %s > %w", variable.GetPath(), err)
+	varFile, errIt := s.loadVariablesFileFromBytes(headVarsFile, variable.GetPath(), variable.IsVault())
+	if errIt != nil {
+		return nil, fmt.Errorf("%w", errIt)
 	}
 
 	headVar, exists := varFile[variable.GetName()]
 	if !exists {
-		return nil, fmt.Errorf("variable %s from %s doesn't exist in HEAD", variable.GetName(), variable.GetPath())
+		return nil, fmt.Errorf("variable from %s doesn't exist in HEAD", variable.GetPath())
 	}
 
 	headVarHash := sync.HashString(fmt.Sprint(headVar))
 	if variable.GetHash() != headVarHash {
-		return nil, fmt.Errorf("variable %s from %s is an unversioned change. You need to commit this variable change", variable.GetName(), variable.GetPath())
+		return nil, fmt.Errorf("variable from %s is an unversioned change. You need to commit variable change", variable.GetPath())
 	}
 
 	return ref, nil
@@ -493,6 +457,7 @@ func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git
 	if err != nil {
 		return nil, err
 	}
+
 	cIter, err := repo.Log(&git.LogOptions{From: ref.Hash()})
 	if err != nil {
 		return nil, err
@@ -510,17 +475,9 @@ func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git
 			return nil
 		}
 
-		reader, errIt := file.Blob.Reader()
+		varFile, errIt := s.loadVariablesFileFromBytes(file, variable.GetPath(), variable.IsVault())
 		if errIt != nil {
-			return fmt.Errorf("can't read %s > %w", variable.GetPath(), errIt)
-		}
-		contents, errIt := io.ReadAll(reader)
-		if errIt != nil {
-			return fmt.Errorf("can't read %s > %w", variable.GetPath(), errIt)
-		}
-		varFile, errIt := sync.LoadVariablesFileFromBytes(contents, s.vaultPass, variable.IsVault())
-		if errIt != nil {
-			return fmt.Errorf("YAML load %s > %w", variable.GetPath(), errIt)
+			return fmt.Errorf("commit %s > %w", c.Hash, errIt)
 		}
 
 		_, exists := varFile[variable.GetName()]
@@ -534,8 +491,12 @@ func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git
 		return storer.ErrStop
 	})
 
+	if err != nil {
+		return nil, err
+	}
+
 	if !varExisted {
-		return nil, fmt.Errorf("variable %s from %s never existed in repository, please ensure your build is correct", variable.GetName(), variable.GetPath())
+		return nil, fmt.Errorf("variable from %s never existed in repository, please ensure your build is correct", variable.GetPath())
 	}
 
 	tvi := sync.NewTimelineVariablesItem(currentHash[:13], currentHash, currentHashTime)
@@ -739,8 +700,9 @@ func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.Ordered
 		if !artifactResource.IsValidResource() {
 			ti, errTi := s.findResourceChangeTime(buildBaseVersion, buildResource.BuildMetaPath(), repo)
 			if errTi != nil {
-				return timeline, errTi
+				return timeline, fmt.Errorf("find resource `%s` timeline (new) > %w", buildResource.GetName(), errTi)
 			}
+
 			ti.AddResource(buildResource)
 			timeline = sync.AddToTimeline(timeline, ti)
 
@@ -759,10 +721,10 @@ func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.Ordered
 		if buildBaseVersion != artifactBaseVersion {
 			ti, errTi := s.findResourceChangeTime(buildBaseVersion, buildResource.BuildMetaPath(), repo)
 			if errTi != nil {
-				return timeline, errTi
+				return timeline, fmt.Errorf("find resource `%s` timeline (update) > %w", buildResource.GetName(), errTi)
 			}
-			ti.AddResource(buildResource)
 
+			ti.AddResource(buildResource)
 			timeline = sync.AddToTimeline(timeline, ti)
 			allUpdatedResources.Unset(buildResource.GetName())
 
@@ -805,8 +767,11 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory, modifiedFile
 		variable, _ := updatedVariables.Get(varName)
 		ti, errTi := s.findVariableUpdateTime(variable, repo)
 		if errTi != nil {
-			return timeline, errTi
+			launchr.Term().Error().Printfln("find variable `%s` timeline (update) > %s", variable.GetName(), errTi.Error())
+			launchr.Term().Warning().Printfln("skipping %s", variable.GetName())
+			continue
 		}
+
 		ti.AddVariable(variable)
 		timeline = sync.AddToTimeline(timeline, ti)
 
@@ -817,8 +782,11 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory, modifiedFile
 		variable, _ := deletedVariables.Get(varName)
 		ti, errTi := s.findVariableDeletionTime(variable, repo)
 		if errTi != nil {
-			return timeline, errTi
+			launchr.Term().Error().Printfln("find variable `%s` timeline (delete) > %s", variable.GetName(), errTi.Error())
+			launchr.Term().Warning().Printfln("skipping %s", variable.GetName())
+			continue
 		}
+
 		ti.AddVariable(variable)
 		timeline = sync.AddToTimeline(timeline, ti)
 
@@ -1097,4 +1065,42 @@ func (s *SyncAction) composeVersion(oldVersion string, newVersion string) string
 	}
 
 	return version
+}
+
+func (s *SyncAction) loadYamlFileFromBytes(file *object.File, path string) (map[string]any, error) {
+	reader, errIt := file.Blob.Reader()
+	if errIt != nil {
+		return nil, fmt.Errorf("can't read %s > %w", path, errIt)
+	}
+
+	contents, errIt := io.ReadAll(reader)
+	if errIt != nil {
+		return nil, fmt.Errorf("can't read %s > %w", path, errIt)
+	}
+
+	yamlFile, errIt := sync.LoadYamlFileFromBytes(contents)
+	if errIt != nil {
+		return nil, fmt.Errorf("YAML load %s > %w", path, errIt)
+	}
+
+	return yamlFile, nil
+}
+
+func (s *SyncAction) loadVariablesFileFromBytes(file *object.File, path string, isVault bool) (map[string]any, error) {
+	reader, errIt := file.Blob.Reader()
+	if errIt != nil {
+		return nil, fmt.Errorf("can't read %s > %w", path, errIt)
+	}
+
+	contents, errIt := io.ReadAll(reader)
+	if errIt != nil {
+		return nil, fmt.Errorf("can't read %s > %w", path, errIt)
+	}
+
+	varFile, errIt := sync.LoadVariablesFileFromBytes(contents, s.vaultPass, isVault)
+	if errIt != nil {
+		return nil, fmt.Errorf("YAML load %s > %w", path, errIt)
+	}
+
+	return varFile, nil
 }
