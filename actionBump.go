@@ -1,7 +1,6 @@
 package plasmactlbump
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -53,7 +52,7 @@ func printMemo() {
 }
 
 func (k *bumpService) Bump(last bool) error {
-	launchr.Term().Println("Bump updated versions...")
+	launchr.Term().Info().Println("Bumping updated resources...")
 	printMemo()
 
 	bumper, err := repository.NewBumper()
@@ -62,7 +61,7 @@ func (k *bumpService) Bump(last bool) error {
 	}
 
 	if bumper.IsOwnCommit() {
-		launchr.Term().Warning().Println("skipping bump, as the latest commit is already by the bumper tool")
+		launchr.Term().Info().Println("skipping bump, as the latest commit is already by the bumper tool")
 		return nil
 	}
 
@@ -73,7 +72,8 @@ func (k *bumpService) Bump(last bool) error {
 
 	resources := k.collectResources(files)
 	if len(resources) == 0 {
-		return errors.New("no resources to update")
+		launchr.Term().Info().Println("No resource to update")
+		return nil
 	}
 
 	version, err := bumper.GetLastCommitShortHash()
