@@ -1,7 +1,6 @@
 package plasmactlbump
 
 import (
-	"fmt"
 	"path/filepath"
 
 	"github.com/launchrctl/launchr"
@@ -14,34 +13,10 @@ var unversionedFiles = map[string]struct{}{
 	"README.svg": {},
 }
 
-// PromptError prints an error.
-func PromptError(err error) {
-	if err == nil {
-		return
-	}
-
-	fmt.Printf("\x1b[31;1m%s\x1b[0m\n", fmt.Sprintf("error: %s\n", err))
-}
-
-// BumpAction is a launchr.Service providing bumper functionality.
-type BumpAction interface {
-	launchr.Service
-	Bump(last bool) error
-}
-
-type bumpService struct {
-	cfg launchr.Config
-}
-
-func newBumpService(cfg launchr.Config) BumpAction {
-	return &bumpService{
-		cfg: cfg,
-	}
-}
-
-// ServiceInfo implements launchr.Service interface.
-func (k *bumpService) ServiceInfo() launchr.ServiceInfo {
-	return launchr.ServiceInfo{}
+// BumpAction is an action representing versions update of committed resources.
+type BumpAction struct {
+	last   bool
+	dryRun bool
 }
 
 func printMemo() {
@@ -51,7 +26,8 @@ func printMemo() {
 	}
 }
 
-func (k *bumpService) Bump(last bool) error {
+// Execute the bump action to update committed resources.
+func (b *BumpAction) Execute() error {
 	launchr.Term().Info().Println("Bumping updated resources...")
 	printMemo()
 
@@ -65,12 +41,12 @@ func (k *bumpService) Bump(last bool) error {
 		return nil
 	}
 
-	files, err := bumper.GetModifiedFiles(last)
+	files, err := bumper.GetModifiedFiles(b.last)
 	if err != nil {
 		return err
 	}
 
-	resources := k.collectResources(files)
+	resources := b.collectResources(files)
 	if len(resources) == 0 {
 		launchr.Term().Info().Println("No resource to update")
 		return nil
@@ -82,16 +58,20 @@ func (k *bumpService) Bump(last bool) error {
 		return err
 	}
 
-	err = k.updateResources(resources, version)
+	err = b.updateResources(resources, version)
 	if err != nil {
 		launchr.Log().Error("There is an error during resources update")
 		return err
 	}
 
+	if b.dryRun {
+		return nil
+	}
+
 	return bumper.Commit()
 }
 
-func (k *bumpService) collectResources(files []string) map[string]*sync.Resource {
+func (b *BumpAction) collectResources(files []string) map[string]*sync.Resource {
 	// @TODO re-use inventory.GetChangedResources()
 	resources := make(map[string]*sync.Resource)
 	for _, path := range files {
@@ -126,7 +106,7 @@ func (k *bumpService) collectResources(files []string) map[string]*sync.Resource
 	return resources
 }
 
-func (k *bumpService) updateResources(resources map[string]*sync.Resource, version string) error {
+func (b *BumpAction) updateResources(resources map[string]*sync.Resource, version string) error {
 	if len(resources) == 0 {
 		return nil
 	}
@@ -139,6 +119,10 @@ func (k *bumpService) updateResources(resources map[string]*sync.Resource, versi
 		}
 
 		launchr.Term().Printfln("- %s from %s to %s", r.GetName(), currentVersion, version)
+		if b.dryRun {
+			continue
+		}
+
 		err = r.UpdateVersion(version)
 		if err != nil {
 			return err
