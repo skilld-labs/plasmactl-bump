@@ -15,7 +15,6 @@ func init() {
 
 // Plugin is [launchr.Plugin] plugin providing bump functionality.
 type Plugin struct {
-	b   BumpAction
 	k   keyring.Keyring
 	cfg launchr.Config
 }
@@ -31,8 +30,6 @@ func (p *Plugin) PluginInfo() launchr.PluginInfo {
 func (p *Plugin) OnAppInit(app launchr.App) error {
 	app.GetService(&p.cfg)
 	app.GetService(&p.k)
-	p.b = newBumpService(p.cfg)
-	app.AddService(p.b)
 	return nil
 }
 
@@ -55,7 +52,8 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 			cmd.SilenceUsage = true
 
 			if !doSync {
-				return p.b.Bump(last)
+				bumpAction := BumpAction{last: last, dryRun: dryRun}
+				return bumpAction.Execute()
 			}
 
 			syncAction := SyncAction{
@@ -79,7 +77,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 	}
 
 	bumpCmd.Flags().BoolVarP(&doSync, "sync", "s", false, "Propagate versions of updated components to their dependencies")
-	bumpCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate propagate without doing anything")
+	bumpCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate bump or sync without updating anything")
 	bumpCmd.Flags().BoolVar(&listImpacted, "list-impacted", false, "Print list of impacted resources")
 	bumpCmd.Flags().StringVar(&override, "override", "", "Override comparison artifact name (commit)")
 	bumpCmd.Flags().StringVar(&username, "username", "", "Username for artifact repository")

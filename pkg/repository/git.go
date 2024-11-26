@@ -122,6 +122,8 @@ func (r *Bumper) GetModifiedFiles(last bool) ([]string, error) {
 			var path string
 
 			switch action {
+			case merkletrie.Delete:
+				path = ch.From.Name
 			case merkletrie.Modify:
 				path = ch.From.Name
 			case merkletrie.Insert:

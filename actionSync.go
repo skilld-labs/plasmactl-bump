@@ -54,7 +54,7 @@ type SyncAction struct {
 	artifactOverride string
 }
 
-// Execute executes the sync action to propagate resources' versions.
+// Execute the sync action to propagate resources' versions.
 func (s *SyncAction) Execute(username, password string) error {
 	err := s.prepareArtifact(username, password)
 	if err != nil {
