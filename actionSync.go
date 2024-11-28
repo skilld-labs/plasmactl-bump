@@ -519,16 +519,7 @@ func (s *SyncAction) getResourcesMaps() (map[string]*sync.OrderedMap[bool], map[
 	var priorityOrder []string
 	for _, dep := range plasmaCompose.Dependencies {
 		pkg := dep.ToPackage(dep.Name)
-		tag := pkg.GetTag()
-		branch := pkg.GetRef()
-		var version string
-		if tag != "" {
-			version = tag
-		} else if branch != "" {
-			version = branch
-		} else {
-			return nil, nil, errors.New("can't find package version")
-		}
+		version := pkg.GetTarget()
 
 		packagePathMap[dep.Name] = filepath.Join(s.packagesDir, pkg.GetName(), version)
 		priorityOrder = append(priorityOrder, dep.Name)
