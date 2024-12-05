@@ -67,9 +67,9 @@ func (s *SyncAction) Execute(username, password string) error {
 	}
 
 	sort.Strings(modifiedFiles)
-	launchr.Term().Info().Printf("Build and Artifact diff:\n")
+	launchr.Log().Info(fmt.Sprintf("Build and Artifact diff:"))
 	for _, file := range modifiedFiles {
-		launchr.Term().Printfln("- %s", file)
+		launchr.Log().Info(fmt.Sprintf("- %s", file))
 	}
 
 	err = s.ensureVaultpassExists()
@@ -616,13 +616,14 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 	allDiffResources := buildInv.GetChangedResources(modifiedFiles)
 	if allDiffResources.Len() > 0 {
 		allDiffResources.SortKeysAlphabetically()
-		launchr.Term().Info().Printfln("Resources diff between build and artifact")
+		launchr.Log().Info(fmt.Sprintf(""))
+		launchr.Log().Info(fmt.Sprintf("Resources diff between build and artifact"))
 		for _, key := range allDiffResources.Keys() {
 			r, ok := allDiffResources.Get(key)
 			if !ok {
 				continue
 			}
-			launchr.Term().Printfln("- %s", r.GetName())
+			launchr.Log().Info(fmt.Sprintf("- %s", r.GetName()))
 		}
 
 		launchr.Term().Info().Printfln("Gathering domain and package resources")
@@ -632,14 +633,14 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 		}
 
 		// Find new or updated resources in diff.
-		launchr.Term().Info().Printfln("Checking domain resources")
+		launchr.Log().Info(fmt.Sprintf("Checking domain resources"))
 		timeline, err = s.populateTimelineResources(allDiffResources, resourcesMap[domainNamespace], timeline, s.domainDir)
 		if err != nil {
 			return nil, nil, fmt.Errorf("iteraring domain resources > %w", err)
 		}
 
 		// Iterate each package, find new or updated resources in diff.
-		launchr.Term().Info().Printfln("Checking packages resources")
+		launchr.Log().Info(fmt.Sprintf("Checking packages resources"))
 		for name, packagePath := range packagePathMap {
 			timeline, err = s.populateTimelineResources(allDiffResources, resourcesMap[name], timeline, packagePath)
 			if err != nil {
@@ -693,7 +694,7 @@ func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.Ordered
 
 			allUpdatedResources.Unset(buildResource.GetName())
 
-			launchr.Term().Printfln("- %s - new resource from %s", buildResource.GetName(), gitPath)
+			launchr.Log().Info(fmt.Sprintf("- %s - new resource from %s", buildResource.GetName(), gitPath))
 			continue
 		}
 
@@ -713,7 +714,7 @@ func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.Ordered
 			timeline = sync.AddToTimeline(timeline, ti)
 			allUpdatedResources.Unset(buildResource.GetName())
 
-			launchr.Term().Printfln("- %s - updated resource from %s", buildResource.GetName(), gitPath)
+			launchr.Log().Info(fmt.Sprintf("- %s - updated resource from %s", buildResource.GetName(), gitPath))
 			continue
 		}
 
@@ -724,7 +725,7 @@ func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.Ordered
 			//	return nil, errNotVersioned
 			//}
 
-			launchr.Term().Warning().Printfln("- skipping %s (identical build and artifact version)", resourceName)
+			launchr.Log().Info(fmt.Sprintf("- skipping %s (identical build and artifact version)", resourceName))
 			allUpdatedResources.Unset(buildResource.GetName())
 		}
 	}
@@ -739,7 +740,7 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory, modifiedFile
 	}
 
 	if updatedVariables.Len() == 0 && deletedVariables.Len() == 0 {
-		launchr.Term().Printf("- no variables were updated or deleted\n")
+		launchr.Log().Info(fmt.Sprintf("- no variables were updated or deleted\n"))
 		return timeline, nil
 	}
 
@@ -753,14 +754,14 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory, modifiedFile
 		ti, errTi := s.findVariableUpdateTime(variable, repo)
 		if errTi != nil {
 			launchr.Term().Error().Printfln("find variable `%s` timeline (update) > %s", variable.GetName(), errTi.Error())
-			launchr.Term().Warning().Printfln("skipping %s", variable.GetName())
+			launchr.Log().Warn(fmt.Sprintf("skipping %s", variable.GetName()))
 			continue
 		}
 
 		ti.AddVariable(variable)
 		timeline = sync.AddToTimeline(timeline, ti)
 
-		launchr.Term().Printfln("- %s - new or updated variable from %s", variable.GetName(), variable.GetPath())
+		launchr.Log().Info(fmt.Sprintf("- %s - new or updated variable from %s", variable.GetName(), variable.GetPath()))
 	}
 
 	for _, varName := range deletedVariables.Keys() {
@@ -768,14 +769,14 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory, modifiedFile
 		ti, errTi := s.findVariableDeletionTime(variable, repo)
 		if errTi != nil {
 			launchr.Term().Error().Printfln("find variable `%s` timeline (delete) > %s", variable.GetName(), errTi.Error())
-			launchr.Term().Warning().Printfln("skipping %s", variable.GetName())
+			launchr.Log().Warn(fmt.Sprintf("skipping %s", variable.GetName()))
 			continue
 		}
 
 		ti.AddVariable(variable)
 		timeline = sync.AddToTimeline(timeline, ti)
 
-		launchr.Term().Printfln("- %s - deleted variable from %s", variable.GetName(), variable.GetPath())
+		launchr.Log().Info(fmt.Sprintf("- %s - deleted variable from %s", variable.GetName(), variable.GetPath()))
 	}
 
 	return timeline, nil
@@ -786,7 +787,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 	toPropagate := sync.NewOrderedMap[*sync.Resource]()
 
 	sync.SortTimeline(timeline)
-	launchr.Term().Info().Printfln("Iterating timeline:")
+	launchr.Term().Info().Printfln("Iterating timeline")
 	for _, item := range timeline {
 		launchr.Log().Debug("timeline item", "version", item.GetVersion(), "date", item.GetDate(), "commit", item.GetCommit())
 		switch i := item.(type) {
@@ -799,7 +800,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 					return nil, nil, fmt.Errorf("unknown key %s detected during timeline iteration", key)
 				}
 
-				launchr.Term().Info().Printfln("Collecting %s dependencies:", r.GetName())
+				launchr.Log().Info(fmt.Sprintf("Collecting %s dependencies:", r.GetName()))
 				err := s.propagateResourceDeps(r, i.GetVersion(), toPropagate, buildInv.GetRequiredByMap(), resourceVersionMap)
 				if err != nil {
 					return toPropagate, resourceVersionMap, err
@@ -824,12 +825,12 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 				return toPropagate, resourceVersionMap, fmt.Errorf("search variable affected resources > %w", err)
 			}
 
-			launchr.Term().Info().Printfln("Variables:")
+			launchr.Log().Info(fmt.Sprintf("Variables:"))
 			for _, variable := range variables.Keys() {
-				launchr.Term().Info().Printfln("- %s", variable)
+				launchr.Log().Info(fmt.Sprintf("- %s", variable))
 			}
 
-			launchr.Term().Info().Printfln("Collecting dependencies:")
+			launchr.Log().Info(fmt.Sprintf("Collecting dependencies:"))
 			version := i.GetVersion()
 
 			resources.SortKeysAlphabetically()
@@ -848,7 +849,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 }
 
 func (s *SyncAction) copyHistory(history *sync.OrderedMap[*sync.Resource]) error {
-	launchr.Term().Info().Printfln("Copying history from artifact:")
+	launchr.Term().Info().Printfln("Copying history from artifact")
 	for _, key := range history.Keys() {
 		r, ok := history.Get(key)
 		if !ok {
@@ -863,7 +864,7 @@ func (s *SyncAction) copyHistory(history *sync.OrderedMap[*sync.Resource]) error
 				return err
 			}
 
-			launchr.Term().Printfln("- copy %s - %s", r.GetName(), artifactVersion)
+			launchr.Log().Info(fmt.Sprintf("- copy %s - %s", r.GetName(), artifactVersion))
 			if s.dryRun {
 				continue
 			}
@@ -932,7 +933,7 @@ func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPro
 	updateMap := make(map[string]map[string]string)
 	stopPropagation := false
 
-	launchr.Term().Info().Printfln("Filtering identical versions:")
+	launchr.Log().Info(fmt.Sprintf("Filtering identical versions:"))
 	for _, key := range toPropagate.Keys() {
 		r, _ := toPropagate.Get(key)
 		baseVersion, currentVersion, errVersion := r.GetBaseVersion()
@@ -941,7 +942,7 @@ func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPro
 		}
 
 		if currentVersion == "" {
-			launchr.Term().Warning().Printfln("resource %s has no version", r.GetName())
+			launchr.Log().Warn(fmt.Sprintf("resource %s has no version", r.GetName()))
 			stopPropagation = true
 		}
 
@@ -949,7 +950,7 @@ func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPro
 		if baseVersion == resourceVersionMap[r.GetName()] {
 			launchr.Log().Debug("skip identical",
 				"baseVersion", baseVersion, "currentVersion", currentVersion, "propagateVersion", resourceVersionMap[r.GetName()], "newVersion", newVersion)
-			launchr.Term().Warning().Printfln("- skip %s (identical versions)", r.GetName())
+			launchr.Log().Warn(fmt.Sprintf("- skip %s (identical versions)", r.GetName()))
 			continue
 		}
 
@@ -1024,7 +1025,7 @@ func (s *SyncAction) propagateDepsRecursively(resource *sync.Resource, version s
 		toPropagate.Set(resource.GetName(), resource)
 	}
 	resourceVersionMap[resource.GetName()] = version
-	launchr.Term().Printfln("- %s", resource.GetName())
+	launchr.Log().Info(fmt.Sprintf("- %s", resource.GetName()))
 
 	if itemsMap, ok := resourcesGraph[resource.GetName()]; ok {
 		itemsMap.SortKeysAlphabetically()
