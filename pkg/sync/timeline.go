@@ -195,7 +195,50 @@ func AddToTimeline(list []TimelineItem, item TimelineItem) []TimelineItem {
 // SortTimeline sorts timeline items in slice.
 func SortTimeline(list []TimelineItem) {
 	sort.Slice(list, func(i, j int) bool {
-		return list[i].GetDate().Before(list[j].GetDate())
+		dateI := list[i].GetDate()
+		dateJ := list[j].GetDate()
+
+		// First, compare by date
+		if !dateI.Equal(dateJ) {
+			return dateI.Before(dateJ)
+		}
+
+		// If dates are the same, prioritize by type
+		switch list[i].(type) {
+		case *TimelineVariablesItem:
+			switch list[j].(type) {
+			case *TimelineVariablesItem:
+				// Both are Variables, maintain current order
+				return false
+			case *TimelineResourcesItem:
+				// Variables come before Resources
+				return true
+			default:
+				// Variables come before unknown types
+				return true
+			}
+		case *TimelineResourcesItem:
+			switch list[j].(type) {
+			case *TimelineVariablesItem:
+				// Resources come after Variables
+				return false
+			case *TimelineResourcesItem:
+				// Both are Resources, maintain current order
+				return false
+			default:
+				// Resources come before unknown types
+				return true
+			}
+		default:
+			switch list[j].(type) {
+			case *TimelineVariablesItem, *TimelineResourcesItem:
+				// Unknown types come after Variables and Resources
+				return false
+			default:
+				// Maintain current order for unknown types
+				return false
+			}
+		}
 	})
 }
 
