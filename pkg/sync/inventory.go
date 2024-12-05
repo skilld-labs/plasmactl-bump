@@ -58,6 +58,10 @@ type Variable struct {
 	isVault  bool
 }
 
+func NewVariable(filepath, platform, name string, hash uint64, isVault bool) *Variable {
+	return &Variable{filepath, platform, name, hash, isVault}
+}
+
 // GetPath returns path to variable file.
 func (v *Variable) GetPath() string {
 	return v.filepath
@@ -96,7 +100,7 @@ type Inventory struct {
 	ResourcesCrawler *ResourcesCrawler
 
 	//internal
-	resourcesMap *OrderedMap[bool]
+	resourcesMap *OrderedMap[*Resource]
 	requiredBy   map[string]*OrderedMap[bool]
 	dependsOn    map[string]*OrderedMap[bool]
 	topOrder     []string
@@ -112,7 +116,7 @@ func NewInventory(sourceDir string) (*Inventory, error) {
 	inv := &Inventory{
 		sourceDir:        sourceDir,
 		ResourcesCrawler: NewResourcesCrawler(sourceDir),
-		resourcesMap:     NewOrderedMap[bool](),
+		resourcesMap:     NewOrderedMap[*Resource](),
 		requiredBy:       make(map[string]*OrderedMap[bool]),
 		dependsOn:        make(map[string]*OrderedMap[bool]),
 	}
@@ -134,7 +138,7 @@ func (i *Inventory) Init() error {
 }
 
 // GetResourcesMap returns map of all resources found in source dir.
-func (i *Inventory) GetResourcesMap() *OrderedMap[bool] {
+func (i *Inventory) GetResourcesMap() *OrderedMap[*Resource] {
 	return i.resourcesMap
 }
 
@@ -183,7 +187,7 @@ func (i *Inventory) buildResourcesGraph() error {
 			}
 
 			resourceName := resource.GetName()
-			i.resourcesMap.Set(resourceName, true)
+			i.resourcesMap.Set(resourceName, resource)
 		case "dependencies.yaml":
 			resource := BuildResourceFromPath(relPath, i.sourceDir)
 			if resource == nil {
@@ -194,7 +198,9 @@ func (i *Inventory) buildResourcesGraph() error {
 			}
 
 			resourceName := resource.GetName()
-			i.resourcesMap.Set(resourceName, true)
+			if _, ok := i.resourcesMap.Get(resourceName); !ok {
+				i.resourcesMap.Set(resourceName, resource)
+			}
 
 			data, errRead := os.ReadFile(filepath.Clean(path))
 			if errRead != nil {
@@ -307,7 +313,7 @@ func (i *Inventory) GetChangedVariables(modifiedFiles []string, comparisonDir, v
 
 		sourcePath := filepath.Join(i.sourceDir, path)
 		artifactPath := filepath.Join(comparisonDir, path)
-		isVault := isVaultFile(path)
+		isVault := IsVaultFile(path)
 
 		_, err1 := os.Stat(sourcePath)
 		sourceFileExists := !os.IsNotExist(err1)
@@ -591,6 +597,21 @@ func (i *Inventory) crawlVariableUsage(variable *Variable, dependents map[string
 	return nil
 }
 
+func (i *Inventory) FindVariablesFiles() ([]string, error) {
+	gvFiles, err := i.ResourcesCrawler.FindGroupVarsFiles("")
+	if err != nil {
+		return nil, err
+	}
+
+	vFiles, err := i.ResourcesCrawler.FindGroupVaultFiles("")
+	if err != nil {
+		return nil, err
+	}
+
+	result := append(gvFiles, vFiles...)
+	return result, err
+}
+
 // ResourcesCrawler is a type that represents a crawler for resources in a given directory.
 type ResourcesCrawler struct {
 	taskSources     map[string][]string
@@ -698,6 +719,19 @@ func (cr *ResourcesCrawler) FindGroupVarsFiles(platform string) ([]string, error
 	)
 }
 
+// FindGroupVaultFiles returns a slice of file paths that match vault criteria for group vars on a specific platform.
+func (cr *ResourcesCrawler) FindGroupVaultFiles(platform string) ([]string, error) {
+	return cr.findFilesByPattern(
+		"vault.yaml",
+		"group_vars",
+		platform,
+		3,
+		0,
+		0,
+		1,
+	)
+}
+
 // SearchVariablesInGroupFiles searches for variables in a group of files that match the specified name.
 // It takes a name string and a slice of files.
 // It returns a slice of Variable pointers that contain information about each found variable.
@@ -753,7 +787,7 @@ func (cr *ResourcesCrawler) SearchVariablesInGroupFiles(name string, files []str
 					filepath: path,
 					name:     k,
 					hash:     HashString(sourceValue),
-					isVault:  isVaultFile(path),
+					isVault:  IsVaultFile(path),
 					platform: platform,
 				})
 			}
@@ -870,7 +904,7 @@ func (cr *ResourcesCrawler) SearchVariableResources(platform string, variables m
 	return nil
 }
 
-func isVaultFile(path string) bool {
+func IsVaultFile(path string) bool {
 	return filepath.Base(path) == "vault.yaml"
 }
 
