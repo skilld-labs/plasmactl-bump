@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	async "sync"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -46,6 +47,8 @@ type SyncAction struct {
 
 	// internal.
 	saveKeyring bool
+	timeline    []sync.TimelineItem
+	mx          async.Mutex
 
 	// options.
 	dryRun           bool
@@ -498,8 +501,8 @@ func (s *SyncAction) findVariableDeletionTime(variable *sync.Variable, repo *git
 	return tvi, err
 }
 
-func (s *SyncAction) getResourcesMaps() (map[string]*sync.OrderedMap[bool], map[string]string, error) {
-	resourcesMap := make(map[string]*sync.OrderedMap[bool])
+func (s *SyncAction) getResourcesMaps() (map[string]*sync.OrderedMap[*sync.Resource], map[string]string, error) {
+	resourcesMap := make(map[string]*sync.OrderedMap[*sync.Resource])
 	packagePathMap := make(map[string]string)
 
 	buildResources, err := s.getResourcesMapFrom(s.buildDir)
@@ -608,7 +611,7 @@ func (s *SyncAction) getResourcesMaps() (map[string]*sync.OrderedMap[bool], map[
 	return resourcesMap, packagePathMap, nil
 }
 
-func (s *SyncAction) getResourcesMapFrom(dir string) (*sync.OrderedMap[bool], error) {
+func (s *SyncAction) getResourcesMapFrom(dir string) (*sync.OrderedMap[*sync.Resource], error) {
 	inv, err := sync.NewInventory(dir)
 	if err != nil {
 		return nil, err
@@ -666,7 +669,7 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory, modifiedFiles []str
 	return timeline, allDiffResources, nil
 }
 
-func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.OrderedMap[*sync.Resource], namespaceResources *sync.OrderedMap[bool], timeline []sync.TimelineItem, gitPath string) ([]sync.TimelineItem, error) {
+func (s *SyncAction) populateTimelineResources(allUpdatedResources *sync.OrderedMap[*sync.Resource], namespaceResources *sync.OrderedMap[*sync.Resource], timeline []sync.TimelineItem, gitPath string) ([]sync.TimelineItem, error) {
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return nil, fmt.Errorf("%s - %w", gitPath, err)

@@ -4,9 +4,8 @@ package plasmactlbump
 import (
 	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr"
-	"github.com/spf13/cobra"
-
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
+	"github.com/spf13/cobra"
 )
 
 func init() {
@@ -51,6 +50,23 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 			// Don't show usage help on a runtime error.
 			cmd.SilenceUsage = true
 
+			//f, err := os.Create("cpu.prof")
+			//if err != nil {
+			//	return err
+			//}
+			//defer f.Close()
+			//if err = pprof.StartCPUProfile(f); err != nil {
+			//	return err
+			//}
+			//defer pprof.StopCPUProfile()
+
+			//m, err := os.Create("mem.prof")
+			//if err != nil {
+			//	return err
+			//}
+			//
+			//runtime.GC()
+
 			if !doSync {
 				bumpAction := BumpAction{last: last, dryRun: dryRun}
 				return bumpAction.Execute()
@@ -72,7 +88,19 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 				artifactOverride: truncateOverride(override),
 			}
 
-			return syncAction.Execute(username, password)
+			//return syncAction.Execute(username, password)
+			//err = syncAction.ExecuteFromZero()
+
+			err := syncAction.ExecuteFromZeroAsync()
+			if err != nil {
+				return err
+			}
+
+			//if err = pprof.WriteHeapProfile(m); err != nil {
+			//	return err
+			//}
+
+			return err
 		},
 	}
 
