@@ -30,6 +30,12 @@ type Bumper struct {
 	commitMessage string
 }
 
+// Commit stores commits hash and list of modified files in it.
+type Commit struct {
+	Hash  string
+	Files []string
+}
+
 // NewBumper returns new instance of [Bumper].
 func NewBumper() (*Bumper, error) {
 	r, err := git.PlainOpen("./")
@@ -67,19 +73,9 @@ func (r *Bumper) IsOwnCommit() bool {
 	return r.name == commit.Author.Name && r.mail == commit.Author.Email
 }
 
-// GetLastCommitShortHash gets the short hash of the latest commit in the Git repository.
-func (r *Bumper) GetLastCommitShortHash() (string, error) {
-	ref, err := r.git.Head()
-	if err != nil {
-		return "", err
-	}
-
-	return ref.Hash().String()[:13], nil
-}
-
-// GetModifiedFiles gets a list of files modified in the Git repository commits after last Bump.
-func (r *Bumper) GetModifiedFiles(last bool) ([]string, error) {
-	var modifiedFiles []string
+// GetCommits gets a list of commits before Bump.
+func (r *Bumper) GetCommits(last bool) ([]*Commit, error) {
+	var result []*Commit
 
 	headRef, err := r.git.Head()
 	if err != nil {
@@ -117,6 +113,8 @@ func (r *Bumper) GetModifiedFiles(last bool) ([]string, error) {
 			return diffErr
 		}
 
+		var modifiedFiles []string
+
 		for _, ch := range diff {
 			action, _ := ch.Action()
 			var path string
@@ -130,11 +128,19 @@ func (r *Bumper) GetModifiedFiles(last bool) ([]string, error) {
 				path = ch.To.Name
 			}
 
-			if path != "" {
-				modifiedFiles = append(modifiedFiles, path)
+			if path == "" {
+				continue
 			}
+
+			modifiedFiles = append(modifiedFiles, path)
 		}
 
+		c := &Commit{
+			Hash:  prevCommit.Hash.String(),
+			Files: modifiedFiles,
+		}
+
+		result = append(result, c)
 		if last {
 			return storer.ErrStop
 		}
@@ -150,17 +156,25 @@ func (r *Bumper) GetModifiedFiles(last bool) ([]string, error) {
 	}
 
 	if commitsNum == 1 {
+		var modifiedFiles []string
 		headTree, _ := headCommit.Tree()
 		err = headTree.Files().ForEach(func(file *object.File) error {
 			modifiedFiles = append(modifiedFiles, file.Name)
 			return nil
 		})
+
 		if err != nil {
 			return nil, err
 		}
+
+		c := &Commit{
+			Hash:  headCommit.Hash.String(),
+			Files: modifiedFiles,
+		}
+		result = append(result, c)
 	}
 
-	return modifiedFiles, nil
+	return result, nil
 }
 
 // Commit stores the current changes to the Git repository with the default commit message and author.
