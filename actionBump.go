@@ -41,24 +41,18 @@ func (b *BumpAction) Execute() error {
 		return nil
 	}
 
-	files, err := bumper.GetModifiedFiles(b.last)
+	commits, err := bumper.GetCommits(b.last)
 	if err != nil {
 		return err
 	}
 
-	resources := b.collectResources(files)
+	resources := b.collectResources(commits)
 	if len(resources) == 0 {
 		launchr.Term().Info().Println("No resource to update")
 		return nil
 	}
 
-	version, err := bumper.GetLastCommitShortHash()
-	if err != nil {
-		launchr.Log().Error("Can't retrieve commit hash")
-		return err
-	}
-
-	err = b.updateResources(resources, version)
+	err = b.updateResources(resources)
 	if err != nil {
 		launchr.Log().Error("There is an error during resources update")
 		return err
@@ -71,61 +65,65 @@ func (b *BumpAction) Execute() error {
 	return bumper.Commit()
 }
 
-func (b *BumpAction) collectResources(files []string) map[string]*sync.Resource {
-	// @TODO re-use inventory.GetChangedResources()
-	resources := make(map[string]*sync.Resource)
-	for _, path := range files {
-		if !isVersionableFile(path) {
-			continue
-		}
+func (b *BumpAction) getResource(path string) *sync.Resource {
+	if !isVersionableFile(path) {
+		return nil
+	}
 
-		platform, kind, role, err := sync.ProcessResourcePath(path)
-		if err != nil {
-			continue
-		}
+	return sync.BuildResourceFromPath(path, ".")
+}
 
-		if platform == "" || kind == "" || role == "" {
-			continue
-		}
+func (b *BumpAction) collectResources(commits []*repository.Commit) map[string]map[string]*sync.Resource {
+	uniqueVersion := map[string]string{}
 
-		if sync.IsUpdatableKind(kind) {
-			resource := sync.NewResource(sync.PrepareMachineResourceName(platform, kind, role), "")
-			if _, ok := resources[resource.GetName()]; !ok {
-				// Check is meta/plasma.yaml exists for resource
-				if !resource.IsValidResource() {
-					continue
-				}
-
-				launchr.Term().Printfln("Processing resource %s", resource.GetName())
-				resources[resource.GetName()] = resource
+	resources := make(map[string]map[string]*sync.Resource)
+	for _, c := range commits {
+		hash := c.Hash[:13]
+		for _, path := range c.Files {
+			resource := b.getResource(path)
+			if resource == nil {
+				continue
 			}
-		}
 
+			if _, ok := resources[hash]; !ok {
+				resources[hash] = make(map[string]*sync.Resource)
+			}
+
+			if _, ok := uniqueVersion[resource.GetName()]; ok {
+				continue
+			}
+
+			launchr.Term().Printfln("Processing resource %s", resource.GetName())
+			resources[hash][resource.GetName()] = resource
+			uniqueVersion[resource.GetName()] = hash
+		}
 	}
 
 	return resources
 }
 
-func (b *BumpAction) updateResources(resources map[string]*sync.Resource, version string) error {
-	if len(resources) == 0 {
+func (b *BumpAction) updateResources(hashResourcesMap map[string]map[string]*sync.Resource) error {
+	if len(hashResourcesMap) == 0 {
 		return nil
 	}
 
 	launchr.Term().Printf("Updating versions:\n")
-	for _, r := range resources {
-		currentVersion, err := r.GetVersion()
-		if err != nil {
-			return err
-		}
+	for version, resources := range hashResourcesMap {
+		for mrn, r := range resources {
+			currentVersion, err := r.GetVersion()
+			if err != nil {
+				return err
+			}
 
-		launchr.Term().Printfln("- %s from %s to %s", r.GetName(), currentVersion, version)
-		if b.dryRun {
-			continue
-		}
+			launchr.Term().Printfln("- %s from %s to %s", mrn, currentVersion, version)
+			if b.dryRun {
+				continue
+			}
 
-		err = r.UpdateVersion(version)
-		if err != nil {
-			return err
+			err = r.UpdateVersion(version)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
