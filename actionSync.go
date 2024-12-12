@@ -34,6 +34,7 @@ var (
 const (
 	vaultpassKey    = "vaultpass"
 	domainNamespace = "domain"
+	buildHackAuthor = "override"
 )
 
 // SyncAction is a type representing a resources version synchronization action.
@@ -51,8 +52,9 @@ type SyncAction struct {
 	timeline    []sync.TimelineItem
 
 	// options.
-	dryRun    bool
-	vaultPass string
+	dryRun        bool
+	allowOverride bool
+	vaultPass     string
 }
 
 type hashStruct struct {
@@ -382,6 +384,27 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 
 	hashesMap := make(map[string]*hashStruct)
 	toIterate := namespaceResources.ToDict()
+	currentVersions := map[string]string{}
+
+	if s.allowOverride {
+		for k, resource := range toIterate {
+			if _, ok := hashesMap[k]; !ok {
+				hashesMap[k] = &hashStruct{}
+			}
+
+			hashesMap[k].hash = buildHackAuthor
+			hashesMap[k].hashTime = time.Now()
+			hashesMap[k].author = buildHackAuthor
+
+			buildResource := sync.NewResource(resource.GetName(), s.buildDir)
+			version, err := buildResource.GetVersion()
+			if err != nil {
+				return err
+			}
+
+			currentVersions[k] = version
+		}
+	}
 
 	remainingDebug := len(toIterate)
 	err = cIter.ForEach(func(c *object.Commit) error {
@@ -400,9 +423,13 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 			}
 
 			resourceMetaPath := resource.BuildMetaPath()
-			resourceVersion, err := resource.GetVersion()
-			if err != nil {
-				return err
+			resourceVersion, ok := currentVersions[k]
+			if !ok {
+				resourceVersion, err = resource.GetVersion()
+				if err != nil {
+					return err
+				}
+				currentVersions[k] = resourceVersion
 			}
 
 			file, errIt := c.File(resourceMetaPath)
@@ -410,13 +437,14 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 				if !errors.Is(errIt, object.ErrFileNotFound) {
 					return fmt.Errorf("open file %s in commit %s > %w", resourceMetaPath, c.Hash, errIt)
 				}
+
 				if hashesMap[k].hash == "" {
 					hashesMap[k].hash = c.Hash.String()
 					hashesMap[k].hashTime = c.Author.When
 					hashesMap[k].author = c.Author.Name
 				}
 
-				// File didn't exist before, take current hash as version",
+				// File didn't exist before, take current hash as version,
 				delete(toIterate, k)
 				continue
 			}
@@ -449,14 +477,12 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 
 	for n, hm := range hashesMap {
 		r, _ := namespaceResources.Get(n)
-		resourceVersion, err := r.GetVersion()
-		if err != nil {
-			return err
-		}
+		resourceVersion := currentVersions[n]
 
 		launchr.Log().Debug("add resource to timeline",
 			slog.String("mrn", r.GetName()),
-			slog.String("version", hm.hash),
+			slog.String("commit", hm.hash),
+			slog.String("version", resourceVersion),
 			slog.Time("date", hm.hashTime),
 		)
 
@@ -550,20 +576,53 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 		return err
 	}
 
-	isVault := sync.IsVaultFile(varsFile)
-	varsYaml, err := sync.LoadVariablesFile(varsFile, s.vaultPass, sync.IsVaultFile(varsFile))
+	headCommit, err := repo.CommitObject(ref.Hash())
 	if err != nil {
 		return err
 	}
 
+	var varsYaml map[string]any
+	hashesMap := make(map[string]*hashStruct)
 	variablesMap := sync.NewOrderedMap[*sync.Variable]()
+	isVault := sync.IsVaultFile(varsFile)
+
+	if s.allowOverride {
+		varsYaml, err = sync.LoadVariablesFile(filepath.Join(s.buildDir, varsFile), s.vaultPass, isVault)
+		if err != nil {
+			return err
+		}
+	} else {
+		file, errF := headCommit.File(varsFile)
+		if errF != nil {
+			return errF
+		}
+
+		varsYaml, err = s.loadVariablesFileFromBytes(file, varsFile, isVault)
+		if err != nil {
+			return err
+		}
+	}
+
 	for k, value := range varsYaml {
 		v := sync.NewVariable(varsFile, k, HashString(fmt.Sprint(value)), isVault)
 		variablesMap.Set(k, v)
+
+		if _, ok := hashesMap[k]; !ok {
+			hashesMap[k] = &hashStruct{}
+		}
+
+		if s.allowOverride {
+			hashesMap[k].hash = fmt.Sprint(v.GetHash())
+			hashesMap[k].hashTime = time.Now()
+			hashesMap[k].author = buildHackAuthor
+		} else {
+			hashesMap[k].hash = headCommit.Hash.String()
+			hashesMap[k].hashTime = headCommit.Author.When
+			hashesMap[k].author = headCommit.Author.Name
+		}
 	}
 
 	toIterate := variablesMap.ToDict()
-	hashesMap := make(map[string]*hashStruct)
 
 	cIter, err := repo.Log(&git.LogOptions{From: ref.Hash()})
 	if err != nil {
@@ -581,18 +640,6 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 			launchr.Log().Debug(fmt.Sprintf("Remaining unidentified variables, %s - %d", varsFile, remainingDebug))
 		}
 
-		if ref.Hash().String() == c.Hash.String() {
-			for k := range toIterate {
-				if _, ok := hashesMap[k]; !ok {
-					hashesMap[k] = &hashStruct{}
-				}
-
-				hashesMap[k].hash = c.Hash.String()
-				hashesMap[k].hashTime = c.Author.When
-				hashesMap[k].author = c.Author.Name
-			}
-		}
-
 		file, errIt := c.File(varsFile)
 		if errIt != nil {
 			if !errors.Is(errIt, object.ErrFileNotFound) {
@@ -605,12 +652,12 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 		varFile, errIt := s.loadVariablesFileFromBytes(file, varsFile, isVault)
 		if errIt != nil {
 			if strings.Contains(errIt.Error(), "did not find expected key") || strings.Contains(errIt.Error(), "could not find expected") {
-				launchr.Term().Warning().Printfln("Broken file %s in commit %s detected > %w", varsFile, c.Hash.String(), err)
+				launchr.Term().Warning().Printfln("Broken file %s in commit %s detected > %s", varsFile, c.Hash.String(), errIt.Error())
 				return nil
 			}
 
 			if strings.Contains(errIt.Error(), "invalid password for vault") || strings.Contains(errIt.Error(), "could not find expected") {
-				launchr.Term().Warning().Printfln("invalid password for vault - %s in commit %s detected stopping iteration", varsFile, c.Hash.String())
+				launchr.Term().Warning().Printfln("invalid password for vault - %s in commit %s detected, stopping iteration", varsFile, c.Hash.String())
 				return storer.ErrStop
 			}
 
@@ -618,10 +665,6 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 		}
 
 		for k, hh := range toIterate {
-			if _, ok := hashesMap[k]; !ok {
-				hashesMap[k] = &hashStruct{}
-			}
-
 			prevVar, exists := varFile[k]
 			if !exists {
 				// Variable didn't exist before, take current hash as version
@@ -656,7 +699,7 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 		version := hm.hash[:13]
 		launchr.Log().Debug("add variable to timeline",
 			slog.String("variable", v.GetName()),
-			slog.String("version", hm.hash),
+			slog.String("version", version),
 			slog.Time("date", hm.hashTime),
 			slog.String("path", v.GetPath()),
 		)

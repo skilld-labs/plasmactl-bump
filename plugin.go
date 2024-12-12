@@ -35,6 +35,7 @@ func (p *Plugin) OnAppInit(app launchr.App) error {
 func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 	var doSync bool
 	var dryRun bool
+	var allowOverride bool
 	var vaultpass string
 	var last bool
 
@@ -57,8 +58,9 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 				buildDir:    ".compose/build",
 				packagesDir: ".compose/packages",
 
-				dryRun:    dryRun,
-				vaultPass: vaultpass,
+				dryRun:        dryRun,
+				allowOverride: allowOverride,
+				vaultPass:     vaultpass,
 			}
 
 			err := syncAction.Execute()
@@ -72,6 +74,7 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 
 	bumpCmd.Flags().BoolVarP(&doSync, "sync", "s", false, "Propagate versions of updated components to their dependencies")
 	bumpCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate bump or sync without updating anything")
+	bumpCmd.Flags().BoolVar(&allowOverride, "allow-override", false, "Allow override committed version by current build value")
 	bumpCmd.Flags().StringVar(&vaultpass, "vault-pass", "", "Password for Ansible Vault")
 	bumpCmd.Flags().BoolVarP(&last, "last", "l", false, "Bump resources modified in last commit only")
 
