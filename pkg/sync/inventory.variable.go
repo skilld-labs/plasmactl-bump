@@ -20,13 +20,60 @@ func IsVaultFile(path string) bool {
 type Variable struct {
 	filepath string
 	name     string
+	platform string
 	hash     uint64
 	isVault  bool
 }
 
+// VariableDependency stores variable name, platform and reference to dependent vars.
+type VariableDependency struct {
+	Name      string
+	Platform  string
+	Dependent map[string]map[string]*VariableDependency
+}
+
+// NewVariableDependency creates new instance of [VariableDependency]
+func NewVariableDependency(name, platform string) *VariableDependency {
+	return &VariableDependency{
+		Name:      name,
+		Platform:  platform,
+		Dependent: make(map[string]map[string]*VariableDependency),
+	}
+}
+
+// SetDependent adds new dependent variable to variable.
+func (v *VariableDependency) SetDependent(d *VariableDependency) {
+	if v.Dependent[d.Name] == nil {
+		v.Dependent[d.Name] = make(map[string]*VariableDependency)
+	}
+
+	v.Dependent[d.Name][d.Platform] = d
+}
+
+// GatherDependentKeys recursively gathers dependent keys and stores them in the result map.
+func GatherDependentKeys(vd *VariableDependency, result map[string]map[string]bool) {
+	if vd == nil {
+		return
+	}
+
+	for name, deps := range vd.Dependent {
+		if _, exists := result[name]; !exists {
+			result[name] = make(map[string]bool)
+		}
+
+		for platform, dependency := range deps {
+			result[name][platform] = true
+
+			GatherDependentKeys(dependency, result)
+		}
+	}
+}
+
 // NewVariable returns instance of [Variable] struct.
 func NewVariable(filepath, name string, hash uint64, isVault bool) *Variable {
-	return &Variable{filepath, name, hash, isVault}
+	// @todo
+	parts := strings.Split(filepath, "/")
+	return &Variable{filepath, name, parts[0], hash, isVault}
 }
 
 // GetPath returns path to variable file.
@@ -37,6 +84,11 @@ func (v *Variable) GetPath() string {
 // GetName returns variable name.
 func (v *Variable) GetName() string {
 	return v.name
+}
+
+// GetPlatform returns variable platform.
+func (v *Variable) GetPlatform() string {
+	return v.platform
 }
 
 // GetHash returns variable [Variable.hash]
@@ -50,34 +102,44 @@ func (v *Variable) IsVault() bool {
 }
 
 // GetVariableResources returns list of resources which depends on variable.
-func (i *Inventory) GetVariableResources(variableName string) ([]string, error) {
+func (i *Inventory) GetVariableResources(variableName, variablePlatform string) ([]string, error) {
 	var result []string
 
-	if len(i.variableVariablesDependencyMap) == 0 || len(i.variableResourcesDependencyMap) == 0 {
+	if !i.variablesCalculated {
 		panic("use inventory.CalculateVariablesUsage first")
 	}
 
-	variablesList := make(map[string]bool)
-	i.getVariableVariables(variableName, variablesList)
+	variablesList := make(map[string]map[string]bool)
+	i.getVariableVariables(variableName, variablePlatform, variablesList)
 
-	for v := range variablesList {
-		items, ok := i.variableResourcesDependencyMap[v]
-		if !ok {
+	if variablesList[variableName] == nil {
+		variablesList[variableName] = make(map[string]bool)
+	}
+	variablesList[variableName][variablePlatform] = true
+
+	for v, m := range variablesList {
+		if _, ok := i.variableResourcesDependencyMap[v]; !ok {
 			continue
 		}
-		result = append(result, items...)
+
+		for p := range m {
+			items, ok := i.variableResourcesDependencyMap[v][p]
+			if !ok {
+				continue
+			}
+
+			result = append(result, items...)
+		}
 	}
 
 	return result, nil
 }
 
 // GetVariableResources returns list of variables which depends on variable.
-func (i *Inventory) getVariableVariables(variableName string, result map[string]bool) {
-	result[variableName] = true
-	if _, ok := i.variableVariablesDependencyMap[variableName]; ok {
-		for v := range i.variableVariablesDependencyMap[variableName] {
-			result[v] = true
-			i.getVariableVariables(v, result)
+func (i *Inventory) getVariableVariables(variableName, variablePlatform string, result map[string]map[string]bool) {
+	if p, ok := i.variableVariablesDependencyMap[variableName]; ok {
+		if v, okP := p[variablePlatform]; okP {
+			GatherDependentKeys(v, result)
 		}
 	}
 }
@@ -108,6 +170,8 @@ func (i *Inventory) CalculateVariablesUsage(vaultpass string) error {
 
 	i.variableVariablesDependencyMap = variableVariablesDependencyMap
 	i.variableResourcesDependencyMap = variableResourcesDependencyMap
+
+	i.variablesCalculated = true
 
 	return nil
 }
@@ -176,9 +240,9 @@ func (i *Inventory) buildVarsGroups(vaultPass string) (map[string]map[string]boo
 	return groupKeys, groupVars, nil
 }
 
-func (i *Inventory) buildVariableDependencies(groupKeys map[string]map[string]bool, groupVars map[string]map[string]string) map[string]map[string]bool {
+func (i *Inventory) buildVariableDependencies(groupKeys map[string]map[string]bool, groupVars map[string]map[string]string) map[string]map[string]*VariableDependency {
 	// Map to store the result: key -> map of keys that use it
-	reverseDependencyMap := make(map[string]map[string]bool)
+	reverseDependencyMap := make(map[string]map[string]*VariableDependency)
 
 	var mx sync.Mutex
 	var wg sync.WaitGroup
@@ -196,45 +260,67 @@ func (i *Inventory) buildVariableDependencies(groupKeys map[string]map[string]bo
 }
 
 // Helper function to process each group's dependencies
-func processGroupDependencies(
-	group string,
-	vars map[string]string,
-	groupKeys map[string]map[string]bool,
-	reverseDependencyMap map[string]map[string]bool,
-	mx *sync.Mutex,
-) {
+func processGroupDependencies(group string, vars map[string]string, groupKeys map[string]map[string]bool, reverseDependencyMap map[string]map[string]*VariableDependency, mx *sync.Mutex) {
 	currentGroupKeys := groupKeys[group]
-	platformKeys := groupKeys["platform"]
+	platformKeys := groupKeys[rootPlatform]
 
 	for varKey, varValue := range vars {
-		deps := findDependencies(varValue, currentGroupKeys, platformKeys)
+		deps := findDependencies(group, varValue, currentGroupKeys, platformKeys)
+		if len(deps) == 0 {
+			continue
+		}
 
 		mx.Lock()
-		for _, dep := range deps {
+
+		if reverseDependencyMap[varKey] == nil {
+			reverseDependencyMap[varKey] = make(map[string]*VariableDependency)
+		}
+
+		v, okV := reverseDependencyMap[varKey][group]
+		if !okV {
+			v = NewVariableDependency(varKey, group)
+			reverseDependencyMap[varKey][group] = v
+		}
+
+		for dep, depGr := range deps {
 			if reverseDependencyMap[dep] == nil {
-				reverseDependencyMap[dep] = make(map[string]bool)
+				reverseDependencyMap[dep] = make(map[string]*VariableDependency)
 			}
-			reverseDependencyMap[dep][varKey] = true
+
+			depV, okD := reverseDependencyMap[dep][depGr]
+			if !okD {
+				depV = NewVariableDependency(dep, depGr)
+				reverseDependencyMap[dep][depGr] = depV
+			}
+			depV.SetDependent(v)
 		}
 		mx.Unlock()
 	}
 }
 
 // Helper function to find dependencies in a string
-func findDependencies(value string, currentGroupKeys, platformKeys map[string]bool) []string {
-	var dependencies []string
+func findDependencies(group, value string, currentGroupKeys, platformKeys map[string]bool) map[string]string {
+	dependencies := make(map[string]string)
 
 	// Check current group keys
 	for key := range currentGroupKeys {
 		if strings.Contains(value, " "+key+" ") {
-			dependencies = append(dependencies, key)
+			if _, ok := dependencies[key]; !ok {
+				dependencies[key] = group
+			}
 		}
+	}
+
+	if group == rootPlatform {
+		return dependencies
 	}
 
 	// Check platform keys
 	for key := range platformKeys {
 		if strings.Contains(value, " "+key+" ") {
-			dependencies = append(dependencies, key)
+			if _, ok := dependencies[key]; !ok {
+				dependencies[key] = rootPlatform
+			}
 		}
 	}
 
@@ -380,14 +466,13 @@ func (i *Inventory) extractKeysAndVars(data interface{}, group string, groupKeys
 	}
 }
 
-func (i *Inventory) buildVariableResourcesDependencies(groupKeys map[string]map[string]bool, filesOnly bool) (map[string][]string, error) {
+func (i *Inventory) buildVariableResourcesDependencies(groupKeys map[string]map[string]bool, filesOnly bool) (map[string]map[string][]string, error) {
 	groupFiles, err := i.fc.FindResourcesFiles("")
 	if err != nil {
 		return nil, err
 	}
 
-	// Map to store the result: key -> list of files
-	reverseDependencyMap := make(map[string][]string)
+	reverseDependencyMap := make(map[string]map[string][]string)
 
 	errChan := make(chan error, 1)
 	var wg sync.WaitGroup
@@ -417,37 +502,41 @@ func (i *Inventory) buildVariableResourcesDependencies(groupKeys map[string]map[
 		return reverseDependencyMap, nil
 	}
 
-	varToResourcesDependencyMap := make(map[string][]string)
-	for v, files := range reverseDependencyMap {
-		var res []string
-		for _, path := range files {
-			platform, kind, role, err := ProcessResourcePath(path)
-			if err != nil || (platform == "" || kind == "" || role == "") || !IsUpdatableKind(kind) {
-				continue
+	varToResourcesDependencyMap := make(map[string]map[string][]string)
+	for v, pl := range reverseDependencyMap {
+		for p, files := range pl {
+			var res []string
+			for _, path := range files {
+				platform, kind, role, err := ProcessResourcePath(path)
+				if err != nil || (platform == "" || kind == "" || role == "") || !IsUpdatableKind(kind) {
+					continue
+				}
+
+				resourceName := PrepareMachineResourceName(platform, kind, role)
+				res = append(res, resourceName)
+			}
+			if varToResourcesDependencyMap[v] == nil {
+				varToResourcesDependencyMap[v] = make(map[string][]string)
 			}
 
-			resourceName := PrepareMachineResourceName(platform, kind, role)
-			res = append(res, resourceName)
+			varToResourcesDependencyMap[v][p] = res
 		}
-		varToResourcesDependencyMap[v] = res
 	}
 
 	return varToResourcesDependencyMap, nil
 }
 
-func (i *Inventory) processGroupFiles(
-	group string,
-	files []string,
-	groupKeys map[string]map[string]bool,
-	reverseDependencyMap map[string][]string,
-	mx *sync.Mutex,
-) error {
+func (i *Inventory) processGroupFiles(group string, files []string, groupKeys map[string]map[string]bool, reverseDependencyMap map[string]map[string][]string, mx *sync.Mutex) error {
 	// Get keys for the current group and the platform group
 	currentGroupKeys := groupKeys[group]
-	platformKeys := groupKeys["platform"]
+	platformKeys := groupKeys[rootPlatform]
 
-	// Combined keys to check
-	keysToCheck := combineKeys(currentGroupKeys, platformKeys)
+	var keysToCheck map[string]bool
+	if group == rootPlatform {
+		keysToCheck = platformKeys
+	} else {
+		keysToCheck = combineKeys(currentGroupKeys, platformKeys)
+	}
 
 	// Extract relevant lines from all files for the current group
 	linesWithVariablesByFile := make(map[string][]string)
@@ -461,11 +550,23 @@ func (i *Inventory) processGroupFiles(
 
 	// Iterate over each key to find its usage in the relevant lines
 	for key := range keysToCheck {
+		keyGroup := group
+		if group != rootPlatform {
+			// in case if key doesn't exist in target group, but exists in platform
+			// assign all group related resources to platform
+			okP := platformKeys[key]
+			okG := currentGroupKeys[key]
+			if okP && !okG {
+				keyGroup = rootPlatform
+			}
+		}
+
 		for filePath, lines := range linesWithVariablesByFile {
 			// Check if the file path prefix has been processed for the key
+
 			filePrefix := getPathPrefix(filePath, 4)
 			mx.Lock()
-			isProcessed := isProcessedFile(key, filePrefix, reverseDependencyMap)
+			isProcessed := isProcessedFile(keyGroup, filePrefix, reverseDependencyMap[key])
 			mx.Unlock()
 			if isProcessed {
 				continue
@@ -475,7 +576,11 @@ func (i *Inventory) processGroupFiles(
 			for _, line := range lines {
 				if strings.Contains(line, key) {
 					mx.Lock()
-					reverseDependencyMap[key] = append(reverseDependencyMap[key], filePath)
+					if _, ok := reverseDependencyMap[key]; !ok {
+						reverseDependencyMap[key] = make(map[string][]string)
+					}
+
+					reverseDependencyMap[key][keyGroup] = append(reverseDependencyMap[key][keyGroup], filePath)
 					mx.Unlock()
 					break
 				}
@@ -528,7 +633,7 @@ func extractLinesWithVariables(filePath string) ([]string, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "{{") || strings.Contains(line, "}}") {
+		if len(line) > 0 && !strings.HasPrefix(line, "#") && strings.Contains(line, "{{") || strings.Contains(line, "}}") {
 			linesWithVariables = append(linesWithVariables, line)
 		}
 	}

@@ -61,8 +61,9 @@ type Inventory struct {
 	dependsOn    map[string]*OrderedMap[bool]
 	topOrder     []string
 
-	variableVariablesDependencyMap map[string]map[string]bool
-	variableResourcesDependencyMap map[string][]string
+	variablesCalculated            bool
+	variableVariablesDependencyMap map[string]map[string]*VariableDependency
+	variableResourcesDependencyMap map[string]map[string][]string
 
 	// options
 	sourceDir string
@@ -78,8 +79,8 @@ func NewInventory(sourceDir string) (*Inventory, error) {
 		resourcesMap:                   NewOrderedMap[*Resource](),
 		requiredBy:                     make(map[string]*OrderedMap[bool]),
 		dependsOn:                      make(map[string]*OrderedMap[bool]),
-		variableVariablesDependencyMap: make(map[string]map[string]bool),
-		variableResourcesDependencyMap: make(map[string][]string),
+		variableVariablesDependencyMap: make(map[string]map[string]*VariableDependency),
+		variableResourcesDependencyMap: make(map[string]map[string][]string),
 	}
 
 	err := inv.Init()

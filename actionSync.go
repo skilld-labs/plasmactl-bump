@@ -770,7 +770,8 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 
 			var resources []string
 			for _, v := range variables.Keys() {
-				vr, err := buildInv.GetVariableResources(v)
+				variable, _ := variables.Get(v)
+				vr, err := buildInv.GetVariableResources(variable.GetName(), variable.GetPlatform())
 				if err != nil {
 					return nil, nil, err
 				}
