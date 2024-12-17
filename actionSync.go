@@ -65,6 +65,8 @@ type hashStruct struct {
 
 // Execute the sync action to propagate resources' versions.
 func (s *SyncAction) Execute() error {
+	launchr.Term().Info().Println("Processing propagation...")
+
 	err := s.ensureVaultpassExists()
 	if err != nil {
 		return err
@@ -74,6 +76,7 @@ func (s *SyncAction) Execute() error {
 	if err != nil {
 		return err
 	}
+	launchr.Term().Info().Println("Propagation has been finished")
 
 	if s.saveKeyring {
 		err = s.keyring.Save()
@@ -868,7 +871,7 @@ func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPro
 	}
 
 	sort.Strings(sortList)
-	launchr.Term().Info().Printfln("Propagating versions:")
+	launchr.Log().Info("Propagating versions")
 	for _, key := range sortList {
 		val := updateMap[key]
 
@@ -879,7 +882,7 @@ func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPro
 			return fmt.Errorf("unidentified resource found during update %s", key)
 		}
 
-		launchr.Term().Printfln("- %s from %s to %s", r.GetName(), currentVersion, newVersion)
+		launchr.Log().Info(fmt.Sprintf("%s from %s to %s", r.GetName(), currentVersion, newVersion))
 		if s.dryRun {
 			continue
 		}
