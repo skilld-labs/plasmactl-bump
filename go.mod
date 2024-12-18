@@ -8,6 +8,7 @@ require (
 	github.com/launchrctl/compose v0.11.0
 	github.com/launchrctl/keyring v0.2.5
 	github.com/launchrctl/launchr v0.16.4
+	github.com/pterm/pterm v0.12.79
 	github.com/sosedoff/ansible-vault-go v0.2.0
 	github.com/spf13/cobra v1.8.1
 	github.com/stevenle/topsort v0.2.0
@@ -82,7 +83,6 @@ require (
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pjbgf/sha1cd v0.3.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/pterm/pterm v0.12.79 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect

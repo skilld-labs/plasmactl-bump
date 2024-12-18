@@ -46,6 +46,11 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 			// Don't show usage help on a runtime error.
 			cmd.SilenceUsage = true
 
+			verboseCount, err := rootCmd.Flags().GetCount("verbose")
+			if err != nil {
+				return err
+			}
+
 			if !doSync {
 				bumpAction := BumpAction{last: last, dryRun: dryRun}
 				return bumpAction.Execute()
@@ -61,9 +66,10 @@ func (p *Plugin) CobraAddCommands(rootCmd *cobra.Command) error {
 				dryRun:        dryRun,
 				allowOverride: allowOverride,
 				vaultPass:     vaultpass,
+				verbosity:     verboseCount,
 			}
 
-			err := syncAction.Execute()
+			err = syncAction.Execute()
 			if err != nil {
 				return err
 			}

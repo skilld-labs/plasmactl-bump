@@ -22,6 +22,7 @@ import (
 	"github.com/launchrctl/compose/compose"
 	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr"
+	"github.com/pterm/pterm"
 
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/repository"
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
@@ -55,6 +56,7 @@ type SyncAction struct {
 	dryRun        bool
 	allowOverride bool
 	vaultPass     string
+	verbosity     int
 }
 
 type hashStruct struct {
@@ -321,7 +323,9 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 
 	errorChan := make(chan error, 1)
 	maxWorkers := min(runtime.NumCPU(), len(packagePathMap))
-	workChan := make(chan map[string]string, len(packagePathMap))
+	workChan := make(chan map[string]any, len(packagePathMap))
+
+	multi := pterm.DefaultMultiPrinter
 
 	for i := 0; i < maxWorkers; i++ {
 		go func(workerID int) {
@@ -334,9 +338,13 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 						return
 					}
 
-					if err := s.findResourcesChangeTime(resources[domain["name"]], domain["path"], &mx); err != nil {
+					name := domain["name"].(string)
+					path := domain["path"].(string)
+					pb := domain["pb"].(*pterm.ProgressbarPrinter)
+
+					if err := s.findResourcesChangeTime(resources[name], path, &mx, pb); err != nil {
 						select {
-						case errorChan <- fmt.Errorf("worker %d error processing %s: %w", workerID, domain["name"], err):
+						case errorChan <- fmt.Errorf("worker %d error processing %s: %w", workerID, name, err):
 							cancel()
 						default:
 						}
@@ -349,12 +357,33 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	}
 
 	for name, path := range packagePathMap {
+		if resources[name].Len() == 0 {
+			// Skipping packages with 0 composed resources.
+			continue
+		}
+
 		wg.Add(1)
-		workChan <- map[string]string{"name": name, "path": path}
+
+		var p *pterm.ProgressbarPrinter
+		var err error
+		if s.verbosity < 1 {
+			p, err = pterm.DefaultProgressbar.WithTotal(resources[name].Len()).WithWriter(multi.NewWriter()).Start(fmt.Sprintf("Collecting resources from %s", name))
+			if err != nil {
+				return err
+			}
+		}
+
+		workChan <- map[string]any{"name": name, "path": path, "pb": p}
 	}
 	close(workChan)
-
 	go func() {
+		if s.verbosity < 1 {
+			_, err := multi.Start()
+			if err != nil {
+				errorChan <- fmt.Errorf("error starting multi progress bar: %w", err)
+			}
+		}
+
 		wg.Wait()
 		close(errorChan)
 	}()
@@ -365,10 +394,16 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 		}
 	}
 
+	// Sleep to re-render progress bar. Needed to achieve latest state.
+	if s.verbosity < 1 {
+		time.Sleep(multi.UpdateDelay)
+		multi.Stop()
+	}
+
 	return nil
 }
 
-func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap[*sync.Resource], gitPath string, mx *async.Mutex) error {
+func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap[*sync.Resource], gitPath string, mx *async.Mutex, p *pterm.ProgressbarPrinter) error {
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
@@ -389,24 +424,22 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 	toIterate := namespaceResources.ToDict()
 	currentVersions := map[string]string{}
 
-	if s.allowOverride {
-		for k, resource := range toIterate {
-			if _, ok := hashesMap[k]; !ok {
-				hashesMap[k] = &hashStruct{}
-			}
-
-			hashesMap[k].hash = buildHackAuthor
-			hashesMap[k].hashTime = time.Now()
-			hashesMap[k].author = buildHackAuthor
-
-			buildResource := sync.NewResource(resource.GetName(), s.buildDir)
-			version, err := buildResource.GetVersion()
-			if err != nil {
-				return err
-			}
-
-			currentVersions[k] = version
+	for k, resource := range toIterate {
+		if _, ok := hashesMap[k]; !ok {
+			hashesMap[k] = &hashStruct{}
 		}
+
+		hashesMap[k].hash = buildHackAuthor
+		hashesMap[k].hashTime = time.Now()
+		hashesMap[k].author = buildHackAuthor
+
+		buildResource := sync.NewResource(resource.GetName(), s.buildDir)
+		version, err := buildResource.GetVersion()
+		if err != nil {
+			return err
+		}
+
+		currentVersions[k] = version
 	}
 
 	remainingDebug := len(toIterate)
@@ -449,6 +482,11 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 
 				// File didn't exist before, take current hash as version,
 				delete(toIterate, k)
+
+				if p != nil {
+					p.Increment()
+				}
+
 				continue
 			}
 
@@ -460,6 +498,9 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 			prevVer := sync.GetMetaVersion(metaFile)
 			if resourceVersion != prevVer {
 				delete(toIterate, k)
+				if p != nil {
+					p.Increment()
+				}
 				continue
 			}
 
@@ -489,7 +530,13 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 			slog.Time("date", hm.hashTime),
 		)
 
-		if hm.author != repository.Author {
+		if hm.author == buildHackAuthor && !s.allowOverride {
+			return fmt.Errorf("version `%s` of `%s` doesn't match existing HEAD commit", resourceVersion, n)
+		}
+
+		if hm.author == buildHackAuthor {
+			launchr.Log().Warn("Non-committed version selected for resource", slog.String("resource", r.GetName()))
+		} else if hm.author != repository.Author {
 			launchr.Log().Warn("Non-bump version selected for resource", slog.String("resource", r.GetName()))
 		}
 
@@ -524,6 +571,11 @@ func (s *SyncAction) populateTimelineVars() error {
 	workChan := make(chan string, len(varsFiles))
 	errorChan := make(chan error, 1)
 
+	var p *pterm.ProgressbarPrinter
+	if s.verbosity < 1 {
+		p, _ = pterm.DefaultProgressbar.WithTotal(len(varsFiles)).WithTitle("Processing variables files").Start()
+	}
+
 	for i := 0; i < maxWorkers; i++ {
 		go func(workerID int) {
 			for {
@@ -534,7 +586,7 @@ func (s *SyncAction) populateTimelineVars() error {
 					if !ok {
 						return
 					}
-					if err = s.findVariableUpdateTime(varsFile, s.domainDir, &mx); err != nil {
+					if err = s.findVariableUpdateTime(varsFile, s.domainDir, &mx, p); err != nil {
 						select {
 						case errorChan <- fmt.Errorf("worker %d error processing %s: %w", workerID, varsFile, err):
 							cancel()
@@ -568,7 +620,7 @@ func (s *SyncAction) populateTimelineVars() error {
 	return nil
 }
 
-func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx *async.Mutex) error {
+func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx *async.Mutex, p *pterm.ProgressbarPrinter) error {
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
@@ -579,31 +631,14 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 		return err
 	}
 
-	headCommit, err := repo.CommitObject(ref.Hash())
-	if err != nil {
-		return err
-	}
-
 	var varsYaml map[string]any
 	hashesMap := make(map[string]*hashStruct)
 	variablesMap := sync.NewOrderedMap[*sync.Variable]()
 	isVault := sync.IsVaultFile(varsFile)
 
-	if s.allowOverride {
-		varsYaml, err = sync.LoadVariablesFile(filepath.Join(s.buildDir, varsFile), s.vaultPass, isVault)
-		if err != nil {
-			return err
-		}
-	} else {
-		file, errF := headCommit.File(varsFile)
-		if errF != nil {
-			return errF
-		}
-
-		varsYaml, err = s.loadVariablesFileFromBytes(file, varsFile, isVault)
-		if err != nil {
-			return err
-		}
+	varsYaml, err = sync.LoadVariablesFile(filepath.Join(s.buildDir, varsFile), s.vaultPass, isVault)
+	if err != nil {
+		return err
 	}
 
 	for k, value := range varsYaml {
@@ -614,15 +649,9 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 			hashesMap[k] = &hashStruct{}
 		}
 
-		if s.allowOverride {
-			hashesMap[k].hash = fmt.Sprint(v.GetHash())
-			hashesMap[k].hashTime = time.Now()
-			hashesMap[k].author = buildHackAuthor
-		} else {
-			hashesMap[k].hash = headCommit.Hash.String()
-			hashesMap[k].hashTime = headCommit.Author.When
-			hashesMap[k].author = headCommit.Author.Name
-		}
+		hashesMap[k].hash = fmt.Sprint(v.GetHash())
+		hashesMap[k].hashTime = time.Now()
+		hashesMap[k].author = buildHackAuthor
 	}
 
 	toIterate := variablesMap.ToDict()
@@ -655,12 +684,21 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 		varFile, errIt := s.loadVariablesFileFromBytes(file, varsFile, isVault)
 		if errIt != nil {
 			if strings.Contains(errIt.Error(), "did not find expected key") || strings.Contains(errIt.Error(), "could not find expected") {
-				launchr.Term().Warning().Printfln("Broken file %s in commit %s detected > %s", varsFile, c.Hash.String(), errIt.Error())
+				launchr.Log().Warn("Bad YAML structured detected",
+					slog.String("file", varsFile),
+					slog.String("commit", c.Hash.String()),
+					slog.String("error", errIt.Error()),
+				)
+
 				return nil
 			}
 
-			if strings.Contains(errIt.Error(), "invalid password for vault") || strings.Contains(errIt.Error(), "could not find expected") {
-				launchr.Term().Warning().Printfln("invalid password for vault - %s in commit %s detected, stopping iteration", varsFile, c.Hash.String())
+			if strings.Contains(errIt.Error(), "invalid password for vault") {
+				launchr.Log().Warn("Invalid password for vault",
+					slog.String("file", varsFile),
+					slog.String("commit", c.Hash.String()),
+				)
+
 				return storer.ErrStop
 			}
 
@@ -707,11 +745,24 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 			slog.String("path", v.GetPath()),
 		)
 
+		if hm.author == buildHackAuthor && !s.allowOverride {
+			p.Stop()
+			return fmt.Errorf("value of %s doesn't match existing HEAD commit", n)
+		}
+
+		if hm.author == buildHackAuthor {
+			launchr.Log().Warn("Non-committed version selected for variable", slog.String("variable", n))
+		}
+
 		tri := sync.NewTimelineVariablesItem(version, hm.hash, hm.hashTime)
 		tri.AddVariable(v)
 
 		s.timeline = sync.AddToTimeline(s.timeline, tri)
 
+	}
+
+	if p != nil {
+		p.Increment()
 	}
 
 	return err
@@ -872,7 +923,16 @@ func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPro
 
 	sort.Strings(sortList)
 	launchr.Log().Info("Propagating versions")
+
+	var p *pterm.ProgressbarPrinter
+	if s.verbosity < 1 {
+		p, _ = pterm.DefaultProgressbar.WithTotal(len(sortList)).WithTitle("Updating resources").Start()
+	}
 	for _, key := range sortList {
+		if p != nil {
+			p.Increment()
+		}
+
 		val := updateMap[key]
 
 		r, ok := toPropagate.Get(key)
