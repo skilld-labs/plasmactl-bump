@@ -91,7 +91,7 @@ func (r *Resource) GetVersion() (string, error) {
 
 		version := GetMetaVersion(meta)
 		if version == "" {
-			launchr.Log().Warn("Empty meta file, return empty string as version")
+			launchr.Log().Warn(fmt.Sprintf("Empty meta file %s version, return empty string as version", metaFile))
 		}
 
 		return version, nil
