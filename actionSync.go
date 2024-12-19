@@ -516,6 +516,11 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 		return err
 	}
 
+	// Ensure progress bar showing correct progress.
+	if p != nil && p.Total != p.Current {
+		p.Add(p.Total - p.Current)
+	}
+
 	mx.Lock()
 	defer mx.Unlock()
 
