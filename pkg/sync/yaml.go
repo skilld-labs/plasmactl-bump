@@ -47,7 +47,7 @@ func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any
 			return data, err
 		}
 
-		launchr.Log().Warn("duplicate found, parsing YAML file manually")
+		launchr.Log().Debug("duplicate found, parsing YAML file manually")
 		data, err = UnmarshallFixDuplicates(rawData)
 		if err != nil {
 			return data, err
@@ -87,7 +87,7 @@ func LoadVariablesFileFromBytes(input []byte, vaultPassword string, isVault bool
 			return data, err
 		}
 
-		launchr.Log().Warn("duplicate found, parsing YAML file manually")
+		launchr.Log().Debug("duplicate found, parsing YAML file manually")
 		data, err = UnmarshallFixDuplicates(rawData)
 		if err != nil {
 			return data, err
