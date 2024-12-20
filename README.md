@@ -15,7 +15,8 @@ Update the version of components that were updated in the last commit.
 
 1. Open the git repository.
 2. Check if the latest commit is not a bump commit.
-3. Collect a list of changed files until the previous bump commit is found (matching by author). If the `last` option is
+3. Collect a list of changed (new, updated, deleted) files until the previous bump commit is found (matching by author).
+   If the `last` option is
    passed, only take changes from the last commit. Prepare a map of resource objects to update.
 4. Get the short hash of the last commit.
 5. Iterate through the resource map and update the version of each.
@@ -27,15 +28,14 @@ Update the version of components that were updated in the last commit.
 `bump` works closely with `plasmactl compose`. The purpose of `compose` is to build the platform using resources from
 different places (domain repo, packages outside the repo).
 The purpose of `bump --sync` is to propagate the versions of changed resources to dependant resources in current build (
-post composition) while preserving history of earlier propagated versions.
+post composition) using git history of repositories.
 
 ### Overall Propagation Workflow:
 
-- Search and download the artifact to compare the build to.
-- Find the list of different files between the build and the artifact.
+- Initialize inventory. Which includes calculating variables and resources dependencies.
 - Identify list of resources which version should be propagated.
 - Build propagation map.
-- Update resources in build dir.
+- Update resources in build dir according propagation map.
 
 #### Prerequisites:
 
@@ -45,50 +45,23 @@ post composition) while preserving history of earlier propagated versions.
 
 1. **Search and download the artifact to compare the build to:**
 
-- Open the git repository.
-- Search for the first bump commit after HEAD and use it's short sha (7 characters) to compute artifact name to
-  retrieve.
-- Check if the artifact was previously downloaded and stored in the `.compose/artifacts` directory. If it exists, use it
-  as local cache instead of re-downloading it.
-- Attempt to download the artifact with the name `repo_name-commit_hash_7_symbols-plasma-src.tar.gz` from the
-  repository.
-- If artifact doesn't exist with that name, recursively look for earlier bump commits.
-- Unarchive the artifact into the comparison directory (usually `.compose/comparison-artifact`).
-
-> You can override the artifact commit with the `override` option, which bypasses the git history search and directly
-> attempts to download the artifact.
-
-2. **Find the list of different files between the build and the artifact:**
-
-- Compare the files in the build directory to the files in the artifact directory.
-- If two files differ, their paths are added to the list of updated items.
-- If file doesn't exist in artifact, path is added to updates items.
-- If file exists in artifact, but not in the build, path is added to updates items.
-
-**Excluded Subdirectories and Files:**
-
-- `.git`
-- `.compose`
-- `.plasmactl`
-- `.gitlab-ci.yml`
-- `ansible_collections`
-- `scripts/ci/.gitlab-ci.platform.yaml`
-- `venv`
-- `__pycache__`
-
-3. **Identify list of resources which version should be propagated:**
-
 - Prepare list of resources names per namespace (domain + packages names), if resource exists in several sources,
-  identify origin of composed resource,
-  see [Syncing Resource Versions Across Namespaces](#syncing-resource-versions-across-sources)) and remove duplicates.
-- Convert list of changes files to list of resources. if filepath matches [resource criteria](#resource-criteria),
-  resource object will be created and added to list of changed resources.
-- Initialize [timeline](#timeline).
-- Iterate through modified resources and populate timeline,
-  see [Iterating Through Resources](#iterating-through-resources)
-- Find in list of modified files `group_vars.yaml` and `vault.yaml` files.
-- Iterate through variables files and populate timeline list with changed variables.
-  see [Iterating Through Variables](#iterating-through-variables)
+  identify origin of composed resource and remove duplicates,
+  see [Syncing Resource Versions Across Namespaces](#syncing-resource-versions-across-sources)
+- Find all variables which include other variables in their values, store these dependencies in special map.
+- Find all usage of variables in resources files (template, configuration files), store usage of each dependency in
+  special map.
+
+2.**Identify list of resources which version should be propagated:**
+
+* Initialize [timeline](#timeline).
+* Iterate through all resources (domain + packages) and populate timeline,
+  * Iterate git history to find latest commit where version for resource was set.
+  * If resource has non-versioned changes, error will be returned, unless `allow-override` options passed.
+* Iterate through all variables in build dir and populate timeline with variables versions.
+  * Iterate git history to find latest commit where value for variable was set.
+  * If build variable value is different from committed value, error will be returned, unless `allow-override` options
+      passed.
 
 #### Resource criteria
 
@@ -134,36 +107,7 @@ The timeline is sorted by date to maintain the correct version sequence as if pr
 Iterating through the timeline (chronologically sorted) and applying dependent resource versions, the latest state
 is achieved.
 
-#### Iterating Through Resources:
-
-During this phase, the following rules apply:
-
-- If a resource not present in build, it’s skipped. The developer should handle dependencies manually and bump related
-  resources (in this case dependent resource will be considered as `updated` and require propagation).
-- If a resource is new, add it to the propagation list.
-- If a resource differs between the build and the artifact, compare versions. If the base version (e.g., base,
-  base-propagation_suffix) differs, add it to the propagation list. Otherwise, copy the resource version from the
-  artifact to preserve history of earlier propagated versions.
-- If entry with the same date and commit existed before, merge entries.
-- If build resource version differs from committed resource version - warning will be printed.
-- If resource has non-versioned changes, error will be returned.
-
-#### Iterating Through Variables:
-
-During this phase, the following rules apply:
-
-- If variables file is new, find all new variables and commit where they were added, create new timeline entry per
-  commit.
-- If variables file was deleted, find all deleted variables and commit where they were deleted, create new timeline
-  entry and add to timeline.
-- If variables file exists, but one or several variables were changed, search commits where these changes were done,
-  create new timeline entry per commit, add them to timeline.
-- If entry with the same date and commit existed before, merge entries.
-- If variable never existed in commit history, error will be returned.
-- If build variable value is different from committed value, error will be returned. Same for non-versioned changes.
-
-
-4. **Build propagation map:**
+3**Build propagation map:**
 
 - Chronologically sort timeline.
 - Iterate each timeline entry.
@@ -171,8 +115,7 @@ During this phase, the following rules apply:
   entry (propagate).
 - If resource existed in propagation map, it will be overridden by next timeline entry version.
 
-
-5. **Update resources in build dir:**
+4**Update resources in build dir:**
 
 - Iterate each resource in propagation map.
 - Build new version for resource, which consists of resource original and propagated versions, final result will look

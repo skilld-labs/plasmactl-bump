@@ -2,11 +2,111 @@ package sync
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/launchrctl/launchr"
+	vault "github.com/sosedoff/ansible-vault-go"
 	"gopkg.in/yaml.v3"
 )
+
+// LoadVariablesFile loads vars yaml file from path.
+func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any, error) {
+	var data map[string]any
+	var rawData []byte
+	var err error
+
+	cleanPath := filepath.Clean(path)
+	if isVault {
+		sourceVault, errDecrypt := vault.DecryptFile(cleanPath, vaultPassword)
+		if errDecrypt != nil {
+			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
+				return data, fmt.Errorf("error decrypting vault %s, password is blank", cleanPath)
+			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
+				return data, fmt.Errorf("error decrypting vault %s, invalid secret format", cleanPath)
+			} else if errDecrypt.Error() == invalidPasswordErrText {
+				return data, fmt.Errorf("invalid password for vault '%s'", cleanPath)
+			}
+
+			return data, errDecrypt
+		}
+		rawData = []byte(sourceVault)
+	} else {
+		rawData, err = os.ReadFile(cleanPath)
+		if err != nil {
+			return data, err
+		}
+	}
+
+	err = yaml.Unmarshal(rawData, &data)
+	if err != nil {
+		if !strings.Contains(err.Error(), "already defined at line") {
+			return data, err
+		}
+
+		launchr.Log().Debug("duplicate found, parsing YAML file manually")
+		data, err = UnmarshallFixDuplicates(rawData)
+		if err != nil {
+			return data, err
+		}
+	}
+
+	return data, err
+}
+
+// LoadVariablesFileFromBytes loads vars yaml file from bytes input.
+func LoadVariablesFileFromBytes(input []byte, vaultPassword string, isVault bool) (map[string]any, error) {
+	var data map[string]any
+	var rawData []byte
+	var err error
+
+	if isVault {
+		sourceVault, errDecrypt := vault.Decrypt(string(input), vaultPassword)
+		if errDecrypt != nil {
+			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
+				return data, fmt.Errorf("error decrypting vaults, password is blank")
+			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
+				return data, fmt.Errorf("error decrypting vault, invalid secret format")
+			} else if errDecrypt.Error() == invalidPasswordErrText {
+				return data, fmt.Errorf("invalid password for vault")
+			}
+
+			return data, errDecrypt
+		}
+		rawData = []byte(sourceVault)
+	} else {
+		rawData = input
+	}
+
+	err = yaml.Unmarshal(rawData, &data)
+	if err != nil {
+		if !strings.Contains(err.Error(), "already defined at line") {
+			return data, err
+		}
+
+		launchr.Log().Debug("duplicate found, parsing YAML file manually")
+		data, err = UnmarshallFixDuplicates(rawData)
+		if err != nil {
+			return data, err
+		}
+	}
+
+	return data, err
+}
+
+// LoadYamlFileFromBytes loads yaml file from bytes input.
+func LoadYamlFileFromBytes(input []byte) (map[string]any, error) {
+	var data map[string]any
+	var rawData []byte
+	var err error
+
+	rawData = input
+	err = yaml.Unmarshal(rawData, &data)
+	return data, err
+}
 
 // UnmarshallFixDuplicates handles duplicated values in yaml instead throwing error.
 func UnmarshallFixDuplicates(data []byte) (map[string]any, error) {
