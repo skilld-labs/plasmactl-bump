@@ -536,7 +536,7 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 		)
 
 		if hm.author == buildHackAuthor {
-			msg := fmt.Sprintf("latest version of `%s` doesn't match any existing commit", n)
+			msg := fmt.Sprintf("Latest version of `%s` doesn't match any existing commit", n)
 			if !s.allowOverride {
 				return errors.New(msg)
 			}
