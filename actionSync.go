@@ -397,7 +397,7 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	// Sleep to re-render progress bar. Needed to achieve latest state.
 	if s.verbosity < 1 {
 		time.Sleep(multi.UpdateDelay)
-		multi.Stop()
+		multi.Stop() //nolint
 	}
 
 	return nil
@@ -535,14 +535,15 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 			slog.Time("date", hm.hashTime),
 		)
 
-		if hm.author == buildHackAuthor && !s.allowOverride {
-			return fmt.Errorf("version `%s` of `%s` doesn't match existing HEAD commit", resourceVersion, n)
-		}
-
 		if hm.author == buildHackAuthor {
-			launchr.Log().Warn("Non-committed version selected for resource", slog.String("resource", r.GetName()))
+			msg := fmt.Sprintf("latest version of `%s` doesn't match any existing commit", n)
+			if !s.allowOverride {
+				return errors.New(msg)
+			}
+
+			launchr.Log().Warn(msg)
 		} else if hm.author != repository.Author {
-			launchr.Log().Warn("Non-bump version selected for resource", slog.String("resource", r.GetName()))
+			launchr.Log().Warn(fmt.Sprintf("Latest commit of %s is not a bump commit", r.GetName()))
 		}
 
 		tri := sync.NewTimelineResourcesItem(resourceVersion, hm.hash, hm.hashTime)
@@ -750,20 +751,23 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 			slog.String("path", v.GetPath()),
 		)
 
-		if hm.author == buildHackAuthor && !s.allowOverride {
-			p.Stop()
-			return fmt.Errorf("value of %s doesn't match existing HEAD commit", n)
-		}
-
 		if hm.author == buildHackAuthor {
-			launchr.Log().Warn("Non-committed version selected for variable", slog.String("variable", n))
+			msg := fmt.Sprintf("latest version of `%s` doesn't match any existing commit", n)
+			if !s.allowOverride {
+				if p != nil {
+					p.Stop() //nolint
+				}
+
+				return errors.New(msg)
+			}
+
+			launchr.Log().Warn(msg)
 		}
 
 		tri := sync.NewTimelineVariablesItem(version, hm.hash, hm.hashTime)
 		tri.AddVariable(v)
 
 		s.timeline = sync.AddToTimeline(s.timeline, tri)
-
 	}
 
 	if p != nil {
@@ -779,7 +783,7 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 	resourcesMap := buildInv.GetResourcesMap()
 
 	sync.SortTimeline(timeline)
-	launchr.Log().Info("Iterating timeline:")
+	launchr.Log().Info("Iterating timeline")
 	for _, item := range timeline {
 		switch i := item.(type) {
 		case *sync.TimelineResourcesItem:
