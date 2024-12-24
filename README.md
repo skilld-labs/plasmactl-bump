@@ -43,7 +43,7 @@ post composition) using git history of repositories.
 
 ### Detailed Propagation Workflow:
 
-1. **Search and download the artifact to compare the build to:**
+1. **Analyze build directory:**
 
 - Prepare list of resources names per namespace (domain + packages names), if resource exists in several sources,
   identify origin of composed resource and remove duplicates,
@@ -138,11 +138,10 @@ As a developer:
 - Run `plasmactl compose --conflicts-verbosity --skip-not-versioned` to prepare the build.
 - Run `plasmactl bump --sync` to propagate versions of updated resources to dependent resources.
 
-**Expected Outcome:**  
-No bumping occurs because no resource was updated. No propagation occurs because there is no difference between current
-build and comparison artifact.
-However, all propagated versions from the artifact should be copied to current build if the base version doesn't match
-between the build and artifact.
+**Expected Outcome:**
+No bumping occurs because no resource was updated.
+Propagation occurs as usual and recompute the version of all resources and variables based on their dependencies.
+
 
 ---
 
@@ -155,7 +154,7 @@ As a developer:
 - Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
 - Run `plasmactl bump --sync` to propagate the new version to dependent resources.
 
-**Expected Outcome:**  
+**Expected Outcome:**
 The new version from the bump (e.g., 1111111111111) should propagate to all dependent resources
 as `resource_version-1111111111111`.
 
@@ -170,7 +169,7 @@ As a developer:
 - Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
 - Run `plasmactl bump --sync` to propagate the changes.
 
-**Expected Outcome:**  
+**Expected Outcome:**
 No bumping or propagation. The developer should manually remove any dependencies before the bump.
 
 ---
@@ -184,7 +183,7 @@ As a developer:
 - Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
 - Run `plasmactl bump --sync`.
 
-**Expected Outcome:**  
+**Expected Outcome:**
 The new resource is bumped, but nothing else is propagated. Propagation occurs if the resource is overridden from
 another namespace (e.g., domain or package).
 
@@ -197,7 +196,7 @@ As a developer:
 - Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
 - Run `plasmactl bump --sync`.
 
-**Expected Outcome:**  
+**Expected Outcome:**
 No bumping occurs, but the variable change should propagate to all dependent resources, using commit where change
 happened.
 
@@ -212,7 +211,7 @@ As a developer:
 - Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
 - Run `plasmactl bump --sync`.
 
-**Expected Outcome:**  
+**Expected Outcome:**
 No bumping occurs, but the variable change should propagate to all dependent resources, using commit where change
 happened.
 
@@ -227,7 +226,7 @@ As a developer:
 - Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
 - Run `plasmactl bump --sync`.
 
-**Expected Outcome:**  
+**Expected Outcome:**
 No bumping occurs, but the variable change should propagate to all dependent resources, using commit where change
 happened.
 
@@ -242,7 +241,7 @@ As a developer:
 - Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
 - Run `plasmactl bump --sync`.
 
-**Expected Outcome:**  
+**Expected Outcome:**
 No bumping, but the file creation commit should be propagated to dependent resources of each variable in new file.
 
 ---
@@ -256,7 +255,7 @@ As a developer:
 - Run `plasmactl compose --conflicts-verbosity --skip-not-versioned`.
 - Run `plasmactl bump --sync`.
 
-**Expected Outcome:**  
+**Expected Outcome:**
 No bumping, but the file deletion commit should be propagated to dependent resources of each deleted variable.
 
 ---
@@ -353,7 +352,7 @@ Example state of resources:
  └── function-from-package - ver1
    └── skill-from-package - ver1
      └── flow-from-package - ver1
-       └── executor-from-domain - ver1 
+       └── executor-from-domain - ver1
 ```
 
 As a developer:
@@ -373,7 +372,7 @@ As a developer:
 - Updated resource `skill-from-package` in package repository is bumped and receives new version (`bump_commit_2`)
 - All dependent resources of bumped domain resources are updated.
 
-``` 
+```
 Intermediate result of propagating versions.
 
  library-from-domain - bump_commit_1
@@ -406,7 +405,7 @@ Example state of resources:
  └── function-from-domain - ver1
    └── skill-from-domain - ver1
      └── flow-from-domain - ver1
-       └── executor-from-domain - ver1   
+       └── executor-from-domain - ver1
 ```
 
 As a developer:
@@ -426,7 +425,7 @@ As a developer:
 - Updated resource `skill-from-domain` in package repository is bumped and receives new version (`bump_commit_2`)
 - All dependent resources of bumped domain resources are updated.
 
-``` 
+```
 Intermediate result of propagating versions.
 
  library-from-package - bump_commit_1
@@ -465,7 +464,7 @@ test_variable used in skill-from-domain
  └── function-from-domain - ver1
    └── skill-from-domain - ver1
      └── flow-from-domain - ver1
-       └── executor-from-domain - ver1   
+       └── executor-from-domain - ver1
 ```
 
 As a developer:
@@ -487,7 +486,7 @@ As a developer:
 - Variable update is detected, commit where variable was changed is `variable_change_commit`.
 - All dependent resources of bumped package resources are updated.
 
-``` 
+```
 Intermediate result of propagating versions 1.
 
  library-from-package - bump_commit_1
