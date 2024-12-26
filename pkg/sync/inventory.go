@@ -30,24 +30,17 @@ var InventoryExcluded = []string{
 	"__pycache__",
 }
 
-// Kinds are list of target resources.
-var Kinds = map[string]string{
-	"application": "applications",
-	"service":     "services",
-	"software":    "softwares",
-	"executor":    "executors",
-	"flow":        "flows",
-	"skill":       "skills",
-	"function":    "functions",
-	"library":     "libraries",
-	"entity":      "entities",
-}
-
-type resourceDependencies struct {
-	Name        string `yaml:"name"`
-	IncludeRole struct {
-		Name string `yaml:"name"`
-	} `yaml:"include_role"`
+// Kinds are list of resources kinds which version can be propagated.
+var Kinds = map[string]struct{}{
+	"applications": {},
+	"services":     {},
+	"softwares":    {},
+	"executors":    {},
+	"flows":        {},
+	"skills":       {},
+	"functions":    {},
+	"libraries":    {},
+	"entities":     {},
 }
 
 // Inventory represents the inventory used in the application to search and collect resources and variable resources.
@@ -61,7 +54,10 @@ type Inventory struct {
 	dependsOn    map[string]*OrderedMap[bool]
 	topOrder     []string
 
-	variablesCalculated            bool
+	resourcesUsageCalculated bool
+	usedResources            map[string]bool
+
+	variablesUsageCalculated       bool
 	variableVariablesDependencyMap map[string]map[string]*VariableDependency
 	variableResourcesDependencyMap map[string]map[string][]string
 
@@ -117,30 +113,32 @@ func (i *Inventory) buildResourcesGraph() error {
 		}
 
 		entity := strings.ToLower(filepath.Base(relPath))
+		ext := filepath.Ext(entity)
+		dir := filepath.Dir(relPath)
 
-		switch entity {
-		case "plasma.yaml":
+		isMetaDir := strings.HasSuffix(dir, "/meta")
+		isTasksDir := strings.HasSuffix(dir, "/tasks")
+
+		if (!isMetaDir && !isTasksDir) || (ext != ".yaml" && ext != ".yml") {
+			return nil
+		}
+
+		if isMetaDir && entity == "plasma.yaml" {
 			resource := BuildResourceFromPath(relPath, i.sourceDir)
-			if resource == nil {
-				break
-			}
-			if !resource.IsValidResource() {
-				break
+			if resource == nil || !resource.IsValidResource() {
+				return nil
 			}
 
 			resourceName := resource.GetName()
 			i.resourcesMap.Set(resourceName, resource)
-		case "dependencies.yaml":
+		} else if isTasksDir {
 			resource := BuildResourceFromPath(relPath, i.sourceDir)
-			if resource == nil {
-				break
-			}
-			if !resource.IsValidResource() {
-				break
+			if resource == nil || !resource.IsValidResource() {
+				return nil
 			}
 
 			resourceName := resource.GetName()
-			if _, ok := i.resourcesMap.Get(resourceName); !ok {
+			if _, exists := i.resourcesMap.Get(resourceName); !exists {
 				i.resourcesMap.Set(resourceName, resource)
 			}
 
@@ -149,13 +147,13 @@ func (i *Inventory) buildResourcesGraph() error {
 				return errRead
 			}
 
-			var deps []resourceDependencies
-			err = yaml.Unmarshal(data, &deps)
+			var main []map[string]any
+			err = yaml.Unmarshal(data, &main)
 			if err != nil {
-				return err
+				return fmt.Errorf("%s > %w", path, err)
 			}
 
-			if len(deps) == 0 {
+			if len(main) == 0 {
 				return nil
 			}
 
@@ -163,15 +161,17 @@ func (i *Inventory) buildResourcesGraph() error {
 				i.dependsOn[resourceName] = NewOrderedMap[bool]()
 			}
 
-			for _, dep := range deps {
-				if dep.IncludeRole.Name != "" {
-					depName := strings.ReplaceAll(dep.IncludeRole.Name, ".", "__")
-					if i.requiredBy[depName] == nil {
-						i.requiredBy[depName] = NewOrderedMap[bool]()
-					}
+			for _, entry := range main {
+				if r, ok := entry["include_role"].(map[string]any); ok {
+					if n, ok := r["name"].(string); ok && n != "" {
+						depName := strings.ReplaceAll(n, ".", "__")
+						if i.requiredBy[depName] == nil {
+							i.requiredBy[depName] = NewOrderedMap[bool]()
+						}
 
-					i.requiredBy[depName].Set(resourceName, true)
-					i.dependsOn[resourceName].Set(depName, true)
+						i.requiredBy[depName].Set(resourceName, true)
+						i.dependsOn[resourceName].Set(depName, true)
+					}
 				}
 			}
 		}
@@ -274,18 +274,18 @@ func (i *Inventory) lookupDependenciesRecursively(resourceName string, resources
 
 // GetChangedResources returns an OrderedResourceMap containing the resources that have been modified, based on the provided list of modified files.
 // It iterates over the modified files, builds a resource from each file path, and adds it to the result map if it is not already present.
-func (i *Inventory) GetChangedResources(files []string) *OrderedMap[*Resource] {
-	resources := NewOrderedMap[*Resource]()
-	for _, path := range files {
-		resource := BuildResourceFromPath(path, i.sourceDir)
-		if resource == nil {
-			continue
-		}
-		if _, ok := resources.Get(resource.GetName()); ok {
-			continue
-		}
-		resources.Set(resource.GetName(), resource)
-	}
-
-	return resources
-}
+//func (i *Inventory) GetChangedResources(files []string) *OrderedMap[*Resource] {
+//	resources := NewOrderedMap[*Resource]()
+//	for _, path := range files {
+//		resource := BuildResourceFromPath(path, i.sourceDir)
+//		if resource == nil {
+//			continue
+//		}
+//		if _, ok := resources.Get(resource.GetName()); ok {
+//			continue
+//		}
+//		resources.Set(resource.GetName(), resource)
+//	}
+//
+//	return resources
+//}

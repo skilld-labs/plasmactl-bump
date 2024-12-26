@@ -23,11 +23,6 @@ func NewFilesCrawler(directory string) *FilesCrawler {
 // FindVarsFiles return list of variables files in platform.
 // If platform is empty, search across all.
 func (cr *FilesCrawler) FindVarsFiles(platform string) (map[string][]string, error) {
-	allowedKinds := map[string]bool{}
-	for _, k := range Kinds {
-		allowedKinds[k] = true
-	}
-
 	partsCount := 3
 	platformPart := 0
 	rolePart := 0
@@ -54,7 +49,7 @@ func (cr *FilesCrawler) FindVarsFiles(platform string) (map[string][]string, err
 		}
 
 		parts := strings.Split(relPath, "/")
-		if len(parts) >= partsCount && (platform == "" || parts[platformPart] == platform) &&
+		if len(parts) > partsCount && (platform == "" || parts[platformPart] == platform) &&
 			(rolePart == 0 || parts[rolePart] == roles) {
 
 			if parts[kindPart] == "group_vars" {
@@ -74,11 +69,6 @@ func (cr *FilesCrawler) FindVarsFiles(platform string) (map[string][]string, err
 // FindResourcesFiles return list of resources files in platform.
 // If platform is empty, search across all.
 func (cr *FilesCrawler) FindResourcesFiles(platform string) (map[string][]string, error) {
-	allowedKinds := map[string]bool{}
-	for _, k := range Kinds {
-		allowedKinds[k] = true
-	}
-
 	partsCount := 4
 	platformPart := 0
 	rolePart := 2
@@ -105,12 +95,8 @@ func (cr *FilesCrawler) FindResourcesFiles(platform string) (map[string][]string
 		}
 
 		parts := strings.Split(relPath, "/")
-		if len(parts) >= partsCount && (platform == "" || parts[platformPart] == platform) &&
+		if len(parts) > partsCount && (platform == "" || parts[platformPart] == platform) &&
 			(rolePart == 0 || parts[rolePart] == roles) {
-
-			if ok := allowedKinds[parts[1]]; !ok {
-				return nil
-			}
 
 			if parts[kindPart] == "templates" {
 				ext := filepath.Ext(path)

@@ -7,6 +7,11 @@ import (
 	"github.com/launchrctl/launchr"
 )
 
+const (
+	SortAsc  = "asc"  // SortAsc const.
+	SortDesc = "desc" // SortDesc const.
+)
+
 // TimelineItem is interface for storing commit, date and version of propagated items.
 // Storing such items in slice allows us to propagate items in the same order they were changed.
 type TimelineItem interface {
@@ -193,14 +198,17 @@ func AddToTimeline(list []TimelineItem, item TimelineItem) []TimelineItem {
 }
 
 // SortTimeline sorts timeline items in slice.
-func SortTimeline(list []TimelineItem) {
+func SortTimeline(list []TimelineItem, order string) {
 	sort.Slice(list, func(i, j int) bool {
 		dateI := list[i].GetDate()
 		dateJ := list[j].GetDate()
 
-		// First, compare by date
+		// Determine the date comparison based on the order
 		if !dateI.Equal(dateJ) {
-			return dateI.Before(dateJ)
+			if order == SortAsc {
+				return dateI.Before(dateJ)
+			}
+			return dateI.After(dateJ)
 		}
 
 		// If dates are the same, prioritize by type
@@ -211,8 +219,8 @@ func SortTimeline(list []TimelineItem) {
 				// Both are Variables, maintain current order
 				return false
 			case *TimelineResourcesItem:
-				// Variables come before Resources
-				return true
+				// Variables come before Resources if asc, after if desc
+				return order == SortAsc
 			default:
 				// Variables come before unknown types
 				return true
@@ -220,8 +228,8 @@ func SortTimeline(list []TimelineItem) {
 		case *TimelineResourcesItem:
 			switch list[j].(type) {
 			case *TimelineVariablesItem:
-				// Resources come after Variables
-				return false
+				// Resources come after Variables if asc, before if desc
+				return order == SortDesc
 			case *TimelineResourcesItem:
 				// Both are Resources, maintain current order
 				return false

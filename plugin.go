@@ -45,12 +45,14 @@ func (p *Plugin) DiscoverActions(_ context.Context) ([]*action.Action, error) {
 		doSync := input.Opt("sync").(bool)
 		dryRun := input.Opt("dry-run").(bool)
 		allowOverride := input.Opt("allow-override").(bool)
+		filterByResourceUsage := input.Opt("playbook-filter").(bool)
+		timeDepth := input.Opt("time-depth").(string)
 		vaultpass := input.Opt("vault-pass").(string)
 		last := input.Opt("last").(bool)
 
-		showProgress := false
-		if launchr.Log().Level() == 0 {
-			showProgress = true
+		hideProgress := input.Opt("hide-progress").(bool)
+		if launchr.Log().Level() > 0 {
+			hideProgress = true
 		}
 
 		if !doSync {
@@ -70,10 +72,12 @@ func (p *Plugin) DiscoverActions(_ context.Context) ([]*action.Action, error) {
 			buildDir:    ".compose/build",
 			packagesDir: ".compose/packages",
 
-			dryRun:        dryRun,
-			allowOverride: allowOverride,
-			vaultPass:     vaultpass,
-			showProgress:  showProgress,
+			dryRun:                dryRun,
+			filterByResourceUsage: filterByResourceUsage,
+			timeDepth:             timeDepth,
+			allowOverride:         allowOverride,
+			vaultPass:             vaultpass,
+			showProgress:          !hideProgress,
 		}
 
 		err := syncAction.Execute()
