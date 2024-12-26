@@ -47,10 +47,14 @@ func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any
 			return data, err
 		}
 
-		launchr.Log().Debug("duplicate found, parsing YAML file manually")
-		data, err = UnmarshallFixDuplicates(rawData)
+		var duplicates map[string]bool
+		data, duplicates, err = UnmarshallFixDuplicates(rawData)
 		if err != nil {
 			return data, err
+		}
+
+		for d := range duplicates {
+			launchr.Log().Debug(fmt.Sprintf("duplicate found for variable %s in file %s, using last occurrence", d, path))
 		}
 	}
 
@@ -58,7 +62,7 @@ func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any
 }
 
 // LoadVariablesFileFromBytes loads vars yaml file from bytes input.
-func LoadVariablesFileFromBytes(input []byte, vaultPassword string, isVault bool) (map[string]any, error) {
+func LoadVariablesFileFromBytes(input []byte, path string, vaultPassword string, isVault bool) (map[string]any, error) {
 	var data map[string]any
 	var rawData []byte
 	var err error
@@ -87,10 +91,14 @@ func LoadVariablesFileFromBytes(input []byte, vaultPassword string, isVault bool
 			return data, err
 		}
 
-		launchr.Log().Debug("duplicate found, parsing YAML file manually")
-		data, err = UnmarshallFixDuplicates(rawData)
+		var duplicates map[string]bool
+		data, duplicates, err = UnmarshallFixDuplicates(rawData)
 		if err != nil {
 			return data, err
+		}
+
+		for d := range duplicates {
+			launchr.Log().Debug(fmt.Sprintf("duplicate found for variable %s in file %s, using last occurrence", d, path))
 		}
 	}
 
@@ -109,11 +117,12 @@ func LoadYamlFileFromBytes(input []byte) (map[string]any, error) {
 }
 
 // UnmarshallFixDuplicates handles duplicated values in yaml instead throwing error.
-func UnmarshallFixDuplicates(data []byte) (map[string]any, error) {
+func UnmarshallFixDuplicates(data []byte) (map[string]any, map[string]bool, error) {
 	reader := bytes.NewReader(data)
 	decoder := yaml.NewDecoder(reader)
 
 	result := make(map[string]any)
+	duplicates := make(map[string]bool)
 	for {
 		var rootNode yaml.Node
 		err := decoder.Decode(&rootNode)
@@ -121,13 +130,13 @@ func UnmarshallFixDuplicates(data []byte) (map[string]any, error) {
 			if err.Error() == "EOF" {
 				break
 			}
-			return nil, fmt.Errorf("error parsing YAML document: %w", err)
+			return nil, nil, fmt.Errorf("error parsing YAML document: %w", err)
 		}
 
 		// Parse each document and merge
-		res, err := recursiveParse(&rootNode)
+		res, err := recursiveParse(&rootNode, duplicates)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		doc := res.(map[string]any)
 		for k, v := range doc {
@@ -140,20 +149,20 @@ func UnmarshallFixDuplicates(data []byte) (map[string]any, error) {
 		}
 	}
 
-	return result, nil
+	return result, duplicates, nil
 }
 
 // Recursive parsing function to handle YAML data with duplicate keys.
-func recursiveParse(node *yaml.Node) (any, error) {
+func recursiveParse(node *yaml.Node, duplicates map[string]bool) (any, error) {
 	switch node.Kind {
 	case yaml.DocumentNode:
 		if len(node.Content) > 0 {
-			return recursiveParse(node.Content[0])
+			return recursiveParse(node.Content[0], duplicates)
 		}
 		return nil, nil
 
 	case yaml.AliasNode:
-		return recursiveParse(node.Alias)
+		return recursiveParse(node.Alias, duplicates)
 
 	case yaml.ScalarNode:
 		var value any
@@ -166,7 +175,7 @@ func recursiveParse(node *yaml.Node) (any, error) {
 	case yaml.SequenceNode:
 		var result []any
 		for _, n := range node.Content {
-			value, err := recursiveParse(n)
+			value, err := recursiveParse(n, duplicates)
 			if err != nil {
 				return nil, err
 			}
@@ -182,14 +191,14 @@ func recursiveParse(node *yaml.Node) (any, error) {
 			keyNode := node.Content[i]
 			valueNode := node.Content[i+1]
 			key := keyNode.Value
-			value, err := recursiveParse(valueNode)
+			value, err := recursiveParse(valueNode, duplicates)
 			if err != nil {
 				return result, err
 			}
 
 			// Manage duplicate keys
 			if _, found := result[key]; found {
-				//launchr.Log().Debug("overriding duplicated key in YAML", "key", key)
+				duplicates[key] = true
 				result[key] = value
 			} else {
 				result[key] = value

@@ -19,6 +19,21 @@ action:
       description: Allow override committed version by current build value
       type: boolean
       default: false
+    - name: playbook-filter
+      title: Filter resources by playbook usage
+      description: Parse playbooks and propagate used resources only
+      type: boolean
+      default: true
+    - name: hide-progress
+      title: Hide progress
+      description: Don't draw progress bars (true if log level above 0)
+      type: boolean
+      default: false
+    - name: time-depth
+      title: Time depth
+      description: Use commits only after specific date (ex. 2006-12-30)
+      type: string
+      default: ""
     - name: vault-pass
       title: Vault password
       description: Password for Ansible Vault
