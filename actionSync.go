@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-git/go-git/v5/utils/merkletrie"
 	"io"
 	"log/slog"
 	"os"
@@ -180,11 +181,13 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory) error {
 		return fmt.Errorf("iteraring resources > %w", err)
 	}
 
-	launchr.Log().Info("Populate timeline with variables")
-	err = s.populateTimelineVars()
-	if err != nil {
-		return fmt.Errorf("iteraring variables > %w", err)
-	}
+	return fmt.Errorf("fast exit")
+
+	//launchr.Log().Info("Populate timeline with variables")
+	//err = s.populateTimelineVars()
+	//if err != nil {
+	//	return fmt.Errorf("iteraring variables > %w", err)
+	//}
 
 	return nil
 }
@@ -356,6 +359,10 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 		}(i)
 	}
 
+	delete(packagePathMap, domainNamespace)
+	//delete(packagePathMap, "plasma-core")
+	delete(packagePathMap, "plasma-work")
+
 	for name, path := range packagePathMap {
 		if resources[name].Len() == 0 {
 			// Skipping packages with 0 composed resources.
@@ -403,7 +410,19 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	return nil
 }
 
-func (s *SyncAction) collectCommits(r *git.Repository) (map[string]bool, error) {
+func (s *SyncAction) collectCommits(r *git.Repository, resources *sync.OrderedMap[*sync.Resource]) (map[string]bool, error) {
+	toIterate := resources.ToDict()
+
+	temp := make(map[string]map[string]string)
+	for _, value := range toIterate {
+		path := value.BuildMetaPath()
+
+		_, ok := temp[path]
+		if !ok {
+			temp[path] = make(map[string]string)
+		}
+	}
+
 	// @todo get commits per files meta/vars to iterate only commits where files were changed.
 	result := make(map[string]bool)
 	ref, err := r.Head()
@@ -421,8 +440,67 @@ func (s *SyncAction) collectCommits(r *git.Repository) (map[string]bool, error) 
 		hash := c.Hash.String()
 		hash = hash[:13]
 		result[hash] = true
+
+		// Get the tree of the current commit
+		tree, err := c.Tree()
+		if err != nil {
+			return fmt.Errorf("Error getting tree for commit %s: %v", c.Hash, err)
+		}
+
+		// Get the parent tree (if it exists)
+		var parentTree *object.Tree
+		if c.NumParents() > 0 {
+			parentCommit, err := c.Parents().Next()
+			if err != nil {
+				return fmt.Errorf("Error getting parent commit: %v", err)
+			}
+			parentTree, err = parentCommit.Tree()
+			if err != nil {
+				return fmt.Errorf("Error getting parent tree: %v", err)
+			}
+		}
+
+		// Get the changes between the two trees
+		if parentTree != nil {
+			changes, err := object.DiffTree(parentTree, tree)
+			if err != nil {
+				return fmt.Errorf("Error diffing trees: %v", err)
+			}
+
+			for _, change := range changes {
+				action, err := change.Action()
+				if err != nil {
+					return fmt.Errorf("Error getting change action: %v", err)
+				}
+				var path string
+
+				switch action {
+				case merkletrie.Delete:
+					path = change.From.Name
+				case merkletrie.Modify:
+					path = change.From.Name
+				case merkletrie.Insert:
+					path = change.To.Name
+				}
+
+				if _, ok := temp[path]; ok {
+					temp[path][c.Hash.String()] = c.Author.When.String()
+				}
+			}
+		}
+
 		return nil
 	})
+
+	tests := 0
+	for k, v := range temp {
+		tests = tests + 1
+		launchr.Term().Info().Printfln(k)
+		for c, t := range v {
+			launchr.Term().Warning().Printfln("%s - %s", t, c)
+		}
+	}
+	launchr.Term().Error().Printfln("%d", tests)
 
 	return result, nil
 }
@@ -433,10 +511,13 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 		return fmt.Errorf("%s - %w", gitPath, err)
 	}
 
-	commitsMap, err := s.collectCommits(repo)
+	commitsMap, err := s.collectCommits(repo, namespaceResources)
 	if err != nil {
 		return err
 	}
+
+	// fast exit
+	return nil
 
 	ref, err := repo.Head()
 	if err != nil {
