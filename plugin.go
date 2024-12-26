@@ -45,6 +45,8 @@ func (p *Plugin) DiscoverActions(_ context.Context) ([]*action.Action, error) {
 		doSync := input.Opt("sync").(bool)
 		dryRun := input.Opt("dry-run").(bool)
 		allowOverride := input.Opt("allow-override").(bool)
+		filterByResourceUsage := input.Opt("playbook-resources").(bool)
+		commitsAfter := input.Opt("commits-after").(string)
 		vaultpass := input.Opt("vault-pass").(string)
 		last := input.Opt("last").(bool)
 
@@ -70,10 +72,12 @@ func (p *Plugin) DiscoverActions(_ context.Context) ([]*action.Action, error) {
 			buildDir:    ".compose/build",
 			packagesDir: ".compose/packages",
 
-			dryRun:        dryRun,
-			allowOverride: allowOverride,
-			vaultPass:     vaultpass,
-			showProgress:  showProgress,
+			dryRun:                dryRun,
+			filterByResourceUsage: filterByResourceUsage,
+			commitsAfter:          commitsAfter,
+			allowOverride:         allowOverride,
+			vaultPass:             vaultpass,
+			showProgress:          showProgress,
 		}
 
 		err := syncAction.Execute()

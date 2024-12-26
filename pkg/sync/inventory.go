@@ -61,7 +61,10 @@ type Inventory struct {
 	dependsOn    map[string]*OrderedMap[bool]
 	topOrder     []string
 
-	variablesCalculated            bool
+	resourcesUsageCalculated bool
+	usedResources            map[string]bool
+
+	variablesUsageCalculated       bool
 	variableVariablesDependencyMap map[string]map[string]*VariableDependency
 	variableResourcesDependencyMap map[string]map[string][]string
 
@@ -274,18 +277,18 @@ func (i *Inventory) lookupDependenciesRecursively(resourceName string, resources
 
 // GetChangedResources returns an OrderedResourceMap containing the resources that have been modified, based on the provided list of modified files.
 // It iterates over the modified files, builds a resource from each file path, and adds it to the result map if it is not already present.
-func (i *Inventory) GetChangedResources(files []string) *OrderedMap[*Resource] {
-	resources := NewOrderedMap[*Resource]()
-	for _, path := range files {
-		resource := BuildResourceFromPath(path, i.sourceDir)
-		if resource == nil {
-			continue
-		}
-		if _, ok := resources.Get(resource.GetName()); ok {
-			continue
-		}
-		resources.Set(resource.GetName(), resource)
-	}
-
-	return resources
-}
+//func (i *Inventory) GetChangedResources(files []string) *OrderedMap[*Resource] {
+//	resources := NewOrderedMap[*Resource]()
+//	for _, path := range files {
+//		resource := BuildResourceFromPath(path, i.sourceDir)
+//		if resource == nil {
+//			continue
+//		}
+//		if _, ok := resources.Get(resource.GetName()); ok {
+//			continue
+//		}
+//		resources.Set(resource.GetName(), resource)
+//	}
+//
+//	return resources
+//}

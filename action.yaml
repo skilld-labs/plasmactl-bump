@@ -19,6 +19,16 @@ action:
       description: Allow override committed version by current build value
       type: boolean
       default: false
+    - name: playbook-resources
+      title: Use playbook resources
+      description: Parse playbooks and propagate used resources only
+      type: boolean
+      default: true
+    - name: commits-after
+      title: Commits after
+      description: Use commits only after specific date
+      type: string
+      default: ""
     - name: vault-pass
       title: Vault password
       description: Password for Ansible Vault

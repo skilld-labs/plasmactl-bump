@@ -102,10 +102,10 @@ func (v *Variable) IsVault() bool {
 }
 
 // GetVariableResources returns list of resources which depends on variable.
-func (i *Inventory) GetVariableResources(variableName, variablePlatform string) ([]string, error) {
+func (i *Inventory) GetVariableResources(variableName, variablePlatform string) []string {
 	var result []string
 
-	if !i.variablesCalculated {
+	if !i.variablesUsageCalculated {
 		panic("use inventory.CalculateVariablesUsage first")
 	}
 
@@ -132,7 +132,7 @@ func (i *Inventory) GetVariableResources(variableName, variablePlatform string) 
 		}
 	}
 
-	return result, nil
+	return result
 }
 
 // GetVariableResources returns list of variables which depends on variable.
@@ -171,7 +171,7 @@ func (i *Inventory) CalculateVariablesUsage(vaultpass string) error {
 	i.variableVariablesDependencyMap = variableVariablesDependencyMap
 	i.variableResourcesDependencyMap = variableResourcesDependencyMap
 
-	i.variablesCalculated = true
+	i.variablesUsageCalculated = true
 
 	return nil
 }
@@ -623,7 +623,7 @@ func getPathPrefix(filePath string, parts int) string {
 func extractLinesWithVariables(filePath string) ([]string, error) {
 	file, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
-		return nil, fmt.Errorf("error opening file %s: %w", filePath, err)
+		return nil, fmt.Errorf("opening file %s: %w", filePath, err)
 	}
 
 	defer file.Close()
@@ -640,8 +640,53 @@ func extractLinesWithVariables(filePath string) ([]string, error) {
 		}
 	}
 	if err = scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading file %s: %w", filePath, err)
+		return nil, fmt.Errorf("reading file %s: %w", filePath, err)
 	}
 
 	return linesWithVariables, nil
+}
+
+// IsUsedVariable checks if variable used in any resource.
+// checkResourcesUsage adds additional check if resources are used in platform.
+func (i *Inventory) IsUsedVariable(checkResourcesUsage bool, variableName, variablePlatform string) bool {
+	if !checkResourcesUsage {
+		_, okM := i.variableResourcesDependencyMap[variableName][variablePlatform]
+		if okM {
+			return okM
+		}
+
+		variablesList := make(map[string]map[string]bool)
+		i.getVariableVariables(variableName, variablePlatform, variablesList)
+
+		for v, m := range variablesList {
+			if _, ok := i.variableResourcesDependencyMap[v]; !ok {
+				continue
+			}
+
+			for p := range m {
+				_, ok := i.variableResourcesDependencyMap[v][p]
+				if !ok {
+					continue
+				}
+
+				return true
+			}
+		}
+
+		return false
+	}
+
+	usedResources := i.GetUsedResources()
+	if len(usedResources) == 0 {
+		return false
+	}
+
+	resources := i.GetVariableResources(variableName, variablePlatform)
+	for _, item := range resources {
+		if usedResources[item] {
+			return true
+		}
+	}
+
+	return false
 }

@@ -265,7 +265,10 @@ func (m *OrderedMap[T]) Get(key string) (T, bool) {
 
 // Keys returns the ordered keys from the [OrderedMap].
 func (m *OrderedMap[T]) Keys() []string {
-	return m.keys
+	var keys []string
+	keys = append(keys, m.keys...)
+
+	return keys
 }
 
 // OrderBy updates the order of keys in the [OrderedMap] based on the orderList.
@@ -325,4 +328,115 @@ func (m *OrderedMap[T]) ToDict() map[string]T {
 		dict[key] = value
 	}
 	return dict
+}
+
+// GetUsedResources returns list of used resources.
+func (i *Inventory) GetUsedResources() map[string]bool {
+	if !i.resourcesUsageCalculated {
+		panic("use inventory.CalculateResourcesUsage first")
+	}
+
+	return i.usedResources
+}
+
+// CalculateResourcesUsage parse platform playbooks and determine resources used in platform.
+func (i *Inventory) CalculateResourcesUsage() error {
+	file, err := os.ReadFile(filepath.Join(i.sourceDir, "platform/platform.yaml"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("platform/platform.yaml playbook doesn't exist")
+		}
+
+		return err
+	}
+
+	var platformData []any
+	err = yaml.Unmarshal(file, &platformData)
+	if err != nil {
+		return err
+	}
+
+	var playbooks []string
+	resources := make(map[string]bool)
+
+	for _, item := range platformData {
+		if m, ok := item.(map[string]any); ok {
+			for k, val := range m {
+				if k == "import_playbook" {
+					playbookName, okV := val.(string)
+					if okV {
+						cleanPath := filepath.Clean(strings.ReplaceAll(playbookName, "../", ""))
+						playbooks = append(playbooks, filepath.Join(i.sourceDir, cleanPath))
+					}
+				}
+
+				extractPlaybookRoles(resources, k, val)
+			}
+		}
+	}
+
+	for _, playbook := range playbooks {
+		var playbookData []any
+		file, err = os.ReadFile(filepath.Clean(playbook))
+		if err != nil {
+			return err
+		}
+
+		err = yaml.Unmarshal(file, &playbookData)
+		if err != nil {
+			return err
+		}
+
+		for _, item := range playbookData {
+			if m, ok := item.(map[string]any); ok {
+				for k, val := range m {
+					extractPlaybookRoles(resources, k, val)
+				}
+			}
+		}
+	}
+
+	usedResourcesWithDependencies := make(map[string]bool)
+	for r := range resources {
+		mrn := strings.ReplaceAll(r, ".", "__")
+		deps := i.GetDependsOnResources(mrn, -1)
+
+		usedResourcesWithDependencies[mrn] = true
+		for d := range deps {
+			usedResourcesWithDependencies[d] = true
+		}
+	}
+
+	i.usedResources = usedResourcesWithDependencies
+	i.resourcesUsageCalculated = true
+
+	return nil
+}
+
+func extractPlaybookRoles(result map[string]bool, k string, val any) {
+	if k != "roles" {
+		return
+	}
+
+	if s, ok := val.([]any); ok {
+		for _, i := range s {
+			if v, okV := i.(string); okV {
+				result[v] = true
+				continue
+			}
+
+			if m, okM := i.(map[string]any); okM {
+				role, okR := m["role"]
+				if !okR {
+					return
+				}
+
+				if r, okV := role.(string); okV {
+					result[r] = true
+
+					continue
+				}
+			}
+		}
+	}
 }
