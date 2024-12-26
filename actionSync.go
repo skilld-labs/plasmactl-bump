@@ -822,28 +822,50 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 	resourceVersionMap := make(map[string]string)
 	toPropagate := sync.NewOrderedMap[*sync.Resource]()
 	resourcesMap := buildInv.GetResourcesMap()
+	processed := make(map[string]bool)
+	sync.SortTimelineDesc(timeline)
 
-	sync.SortTimeline(timeline)
 	launchr.Log().Info("Iterating timeline")
 	for _, item := range timeline {
+		dependenciesLog := sync.NewOrderedMap[bool]()
+
 		switch i := item.(type) {
 		case *sync.TimelineResourcesItem:
 			resources := i.GetResources()
 			resources.SortKeysAlphabetically()
 
-			dependenciesLog := sync.NewOrderedMap[bool]()
-
+			var toProcess []string
 			for _, key := range resources.Keys() {
+				if processed[key] {
+					continue
+				}
+				toProcess = append(toProcess, key)
+			}
+
+			if len(toProcess) == 0 {
+				continue
+			}
+
+			for _, key := range toProcess {
 				r, ok := resources.Get(key)
 				if !ok {
 					return nil, nil, fmt.Errorf("unknown key %s detected during timeline iteration", key)
 				}
+
+				processed[key] = true
 
 				dependentResources := buildInv.GetRequiredByResources(r.GetName(), -1)
 				for dep := range dependentResources {
 					depResource, okR := resourcesMap.Get(dep)
 					if !okR {
 						continue
+					}
+
+					// Skip resource if it was processed by previous timeline item or previous resource (via deps).
+					if processed[dep] {
+						continue
+					} else {
+						processed[dep] = true
 					}
 
 					toPropagate.Set(dep, depResource)
@@ -855,18 +877,20 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 				}
 			}
 
-			for _, key := range resources.Keys() {
+			for _, key := range toProcess {
 				// Ensure new version removes previous propagation for that resource.
 				toPropagate.Unset(key)
 				delete(resourceVersionMap, key)
 			}
 
-			launchr.Log().Debug("timeline item (resources)",
-				slog.String("version", item.GetVersion()),
-				slog.Time("date", item.GetDate()),
-				slog.String("resources", fmt.Sprintf("%v", resources.Keys())),
-				slog.String("dependencies", fmt.Sprintf("%v", dependenciesLog.Keys())),
-			)
+			if dependenciesLog.Len() > 0 {
+				launchr.Log().Debug("timeline item (resources)",
+					slog.String("version", item.GetVersion()),
+					slog.Time("date", item.GetDate()),
+					slog.String("resources", fmt.Sprintf("%v", toProcess)),
+					slog.String("dependencies", fmt.Sprintf("%v", dependenciesLog.Keys())),
+				)
+			}
 
 		case *sync.TimelineVariablesItem:
 			variables := i.GetVariables()
@@ -885,18 +909,29 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 			slices.Sort(resources)
 			resources = slices.Compact(resources)
 
-			dependenciesLog := sync.NewOrderedMap[bool]()
+			var toProcess []string
+			for _, key := range resources {
+				if processed[key] {
+					continue
+				}
+				toProcess = append(toProcess, key)
+			}
 
-			for _, r := range resources {
+			if len(toProcess) == 0 {
+				continue
+			}
+
+			for _, r := range toProcess {
 				// First set version for main resource.
 				mainResource, okM := resourcesMap.Get(r)
 				if !okM {
 					launchr.Log().Warn(fmt.Sprintf("skipping not valid resource %s (direct vars dependency)", r))
 					continue
 				}
+
+				processed[r] = true
 				toPropagate.Set(r, mainResource)
 				resourceVersionMap[r] = i.GetVersion()
-
 				dependenciesLog.Set(r, true)
 
 				// Set versions for dependent resources.
@@ -908,6 +943,13 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 						continue
 					}
 
+					// Skip resource if it was processed by previous timeline item or previous resource (via deps).
+					if processed[dep] {
+						continue
+					} else {
+						processed[dep] = true
+					}
+
 					toPropagate.Set(dep, depResource)
 					resourceVersionMap[dep] = i.GetVersion()
 
@@ -915,12 +957,14 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 				}
 			}
 
-			launchr.Log().Debug("timeline item (variables)",
-				slog.String("version", item.GetVersion()),
-				slog.Time("date", item.GetDate()),
-				slog.String("variables", fmt.Sprintf("%v", variables.Keys())),
-				slog.String("resources", fmt.Sprintf("%v", dependenciesLog.Keys())),
-			)
+			if dependenciesLog.Len() > 0 {
+				launchr.Log().Debug("timeline item (variables)",
+					slog.String("version", item.GetVersion()),
+					slog.Time("date", item.GetDate()),
+					slog.String("variables", fmt.Sprintf("%v", variables.Keys())),
+					slog.String("resources", fmt.Sprintf("%v", dependenciesLog.Keys())),
+				)
+			}
 		}
 	}
 
