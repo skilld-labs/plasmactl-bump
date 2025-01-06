@@ -468,6 +468,11 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 			return err
 		}
 
+		split := strings.Split(version, "-")
+		if len(split) > 1 {
+			return fmt.Errorf("dual version %s is detected in build for %s, seems like resource was propagated before. Please re-compose and run sync again", version, k)
+		}
+
 		currentVersions[k] = version
 	}
 
