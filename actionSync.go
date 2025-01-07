@@ -408,13 +408,13 @@ func (s *SyncAction) collectCommits(r *git.Repository) (map[string]bool, error) 
 	result := make(map[string]bool)
 	ref, err := r.Head()
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("error getting HEAD commit > %w", err)
 	}
 
 	// start from the latest commit and iterate to the past
 	cIter, err := r.Log(&git.LogOptions{From: ref.Hash()})
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("git log error > %w", err)
 	}
 
 	_ = cIter.ForEach(func(c *object.Commit) error {
@@ -440,13 +440,13 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 
 	ref, err := repo.Head()
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting HEAD commit > %w", err)
 	}
 
 	// start from the latest commit and iterate to the past
 	cIter, err := repo.Log(&git.LogOptions{From: ref.Hash()})
 	if err != nil {
-		return err
+		return fmt.Errorf("git log error > %w", err)
 	}
 
 	hashesMap := make(map[string]*hashStruct)
@@ -465,7 +465,7 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 		buildResource := sync.NewResource(resource.GetName(), s.buildDir)
 		version, err := buildResource.GetVersion()
 		if err != nil {
-			return err
+			return fmt.Errorf("can't get build version of %s > %w", resource.GetName(), err)
 		}
 
 		split := strings.Split(version, "-")
@@ -547,7 +547,7 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 	})
 
 	if err != nil {
-		return err
+		return fmt.Errorf("error during git log iteration > %w", err)
 	}
 
 	// Ensure progress bar showing correct progress.
@@ -590,7 +590,7 @@ func (s *SyncAction) findResourcesChangeTime(namespaceResources *sync.OrderedMap
 		s.timeline = sync.AddToTimeline(s.timeline, tri)
 	}
 
-	return err
+	return nil
 }
 
 func (s *SyncAction) populateTimelineVars() error {
