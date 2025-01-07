@@ -69,8 +69,8 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	}
 
 	//delete(packagePathMap, domainNamespace)
-	delete(packagePathMap, "plasma-core")
-	delete(packagePathMap, "plasma-work")
+	//delete(packagePathMap, "plasma-core")
+	//delete(packagePathMap, "plasma-work")
 
 	for name, path := range packagePathMap {
 		if resources[name].Len() == 0 {
@@ -173,30 +173,8 @@ func HashFileFromCommit(c *object.Commit, path string) (uint64, *object.File, er
 	return hash, sectionMetaFile, err
 }
 
-func collectResourcesCommits(r *git.Repository, path string, resources *sync.OrderedMap[*sync.Resource]) (*sync.OrderedMap[*CommitsGroup], map[string]map[string]string, error) {
-	launchr.Term().Error().Println("4")
+func collectResourcesCommits(r *git.Repository) (*sync.OrderedMap[*CommitsGroup], map[string]map[string]string, error) {
 	hashes := make(map[string]map[string]string)
-	//temp := make(map[string]map[string]any)
-
-	//for mrn, entity := range resources.ToDict() {
-	//	_, ok := temp[mrn]
-	//	if !ok {
-	//		temp[mrn] = make(map[string]any)
-	//	}
-	//
-	//	version, err := entity.GetVersion()
-	//	if err != nil {
-	//		return nil, nil, err
-	//	}
-	//
-	//	fileHash, err := HashFileByPath(filepath.Join(path, entity.BuildMetaPath()))
-	//	if err != nil {
-	//		return nil, nil, err
-	//	}
-	//
-	//	temp[mrn]["hash"] = fileHash
-	//	temp[mrn]["version"] = version
-	//}
 
 	ref, err := r.Head()
 	if err != nil {
@@ -244,7 +222,6 @@ func collectResourcesCommits(r *git.Repository, path string, resources *sync.Ord
 				sectionName = "head"
 				hashes[hash]["section"] = sectionName
 				commits = append(commits, c.Hash.String())
-				//commits[c.Hash.String()] = true
 			}
 
 			return nil
@@ -264,14 +241,10 @@ func collectResourcesCommits(r *git.Repository, path string, resources *sync.Ord
 			section = c.Hash.String()
 			sectionName = c.Hash.String()
 			sectionDate = c.Author.When
-			//commits = make(map[string]bool)
 			commits = []string{}
 		} else {
-			//if section != "head" {
 			hashes[hash]["section"] = section
-			//}
 
-			//commits[c.Hash.String()] = true
 			commits = append(commits, c.Hash.String())
 		}
 
@@ -298,7 +271,7 @@ func collectResourcesCommits(r *git.Repository, path string, resources *sync.Ord
 
 	}
 	//launchr.Term().Warning().Printfln("%v", temp)
-	launchr.Term().Warning().Printfln("%v", hashes)
+	//launchr.Term().Warning().Printfln("%v", hashes)
 
 	return groups, hashes, nil
 }
@@ -317,7 +290,7 @@ func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 		return fmt.Errorf("%s - %w", gitPath, err)
 	}
 
-	groups, commitsMap, err := collectResourcesCommits(repo, gitPath, namespaceResources)
+	groups, commitsMap, err := collectResourcesCommits(repo)
 	if err != nil {
 		return err
 	}
@@ -338,11 +311,19 @@ func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 						return
 					}
 					if err = s.processResource(r, groups, commitsMap, repo, gitPath, mx, p); err != nil {
+						if p != nil {
+							p.Stop() //nolint
+						}
+
 						select {
 						case errorChan <- err:
 						default:
 						}
 					}
+					if p != nil {
+						p.Increment()
+					}
+
 					wg.Done()
 				}
 			}
@@ -470,7 +451,7 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 				return errProcess
 			}
 
-			launchr.Term().Info().Printfln("%s - version set in %s - %s", resource.GetName(), commit.Author.Name, commit.Hash.String())
+			//launchr.Term().Info().Printfln("%s - version set in %s - %s", resource.GetName(), commit.Author.Name, commit.Hash.String())
 		} else {
 			// ensure bump commit has the same file hash
 			section := item["section"]
@@ -492,7 +473,7 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 				return errProcess
 			}
 
-			launchr.Term().Info().Printfln("%s - version set in %s - %s", resource.GetName(), commit.Author.Name, commit.Hash.String())
+			//launchr.Term().Info().Printfln("%s - version set in %s - %s", resource.GetName(), commit.Author.Name, commit.Hash.String())
 		}
 
 		versionHash.hash = commit.Hash.String()
@@ -519,9 +500,9 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 
 	s.timeline = sync.AddToTimeline(s.timeline, tri)
 
-	if p != nil {
-		p.Increment()
-	}
+	//if p != nil {
+	//	p.Increment()
+	//}
 
 	return nil
 
@@ -709,9 +690,9 @@ func (s *SyncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*Commi
 
 			item := group.items[0]
 
-			launchr.Term().Warning().Printfln("%s", group.name)
-			launchr.Term().Warning().Printfln("%v", group.items)
-			launchr.Term().Info().Printfln("%s", item)
+			//launchr.Term().Warning().Printfln("%s", group.name)
+			//launchr.Term().Warning().Printfln("%v", group.items)
+			//launchr.Term().Info().Printfln("%s", item)
 
 			itemCommit, errItm := repo.CommitObject(plumbing.NewHash(item))
 			if errItm != nil {
@@ -725,7 +706,7 @@ func (s *SyncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*Commi
 
 			// Hashes don't match, as expected
 			if originalHash != itemMetaHash {
-				launchr.Term().Info().Printfln("%s version is ok", mrn)
+				//launchr.Term().Info().Printfln("%s version is ok", mrn)
 				// ensure real version is different
 				itemMetaYaml, errItm := s.loadYamlFileFromBytes(itemMetaFile, resourceMetaPath)
 				if errItm != nil {
@@ -738,7 +719,7 @@ func (s *SyncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*Commi
 					panic("version match when shouldn't")
 				}
 			} else {
-				launchr.Term().Warning().Printfln("hashes match, need to manually iterate - 2 %s %s", sectionCommit, itemCommit)
+				//launchr.Term().Warning().Printfln("hashes match, need to manually iterate - 2 %s %s", sectionCommit, itemCommit)
 				return nil, runManualError
 			}
 
@@ -751,7 +732,6 @@ func (s *SyncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*Commi
 
 func (s *SyncAction) processBumpSection(group *CommitsGroup, mrn, resourceMetaPath, currentVersion string, repo *git.Repository, originalHash uint64) (*object.Commit, error) {
 	// ensure bump commit has the same file hash
-
 	sectionCommit, err := repo.CommitObject(plumbing.NewHash(group.commit))
 	if err != nil {
 		return nil, err
@@ -767,7 +747,7 @@ func (s *SyncAction) processBumpSection(group *CommitsGroup, mrn, resourceMetaPa
 		return nil, runManualError
 	}
 
-	launchr.Term().Error().Printfln("hashes for %s match", mrn)
+	//launchr.Term().Error().Printfln("hashes for %s match", mrn)
 
 	// ensure version from next item commit is different from bump commit.
 	item := group.items[0]
@@ -783,7 +763,7 @@ func (s *SyncAction) processBumpSection(group *CommitsGroup, mrn, resourceMetaPa
 
 	// Hashes don't match, as expected
 	if originalHash != itemMetaHash {
-		launchr.Term().Info().Printfln("%s version is ok", mrn)
+		//launchr.Term().Info().Printfln("%s version is ok", mrn)
 		// ensure real version is different
 		itemMetaYaml, errItm := s.loadYamlFileFromBytes(itemMetaFile, resourceMetaPath)
 		if errItm != nil {
