@@ -8,6 +8,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -23,6 +24,8 @@ import (
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
 )
 
+var runManualError = fmt.Errorf("run manual")
+
 func (s *SyncAction) populateTimelineResources(resources map[string]*sync.OrderedMap[*sync.Resource], packagePathMap map[string]string) error {
 	var wg async.WaitGroup
 	var mx async.Mutex
@@ -34,8 +37,6 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	maxWorkers := min(runtime.NumCPU(), len(packagePathMap))
 	workChan := make(chan map[string]any, len(packagePathMap))
 
-	launchr.Term().Error().Println("1")
-
 	multi := pterm.DefaultMultiPrinter
 
 	for i := 0; i < maxWorkers; i++ {
@@ -46,7 +47,6 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 					return
 				case domain, ok := <-workChan:
 					if !ok {
-						launchr.Term().Error().Println("1.1")
 						return
 					}
 
@@ -54,7 +54,6 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 					path := domain["path"].(string)
 					pb := domain["pb"].(*pterm.ProgressbarPrinter)
 
-					launchr.Term().Error().Println("2")
 					if err := s.findResourcesChangeTime(ctx, resources[name], path, &mx, pb); err != nil {
 						select {
 						case errorChan <- fmt.Errorf("worker %d error processing %s: %w", workerID, name, err):
@@ -69,8 +68,8 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 		}(i)
 	}
 
-	delete(packagePathMap, domainNamespace)
-	//delete(packagePathMap, "plasma-core")
+	//delete(packagePathMap, domainNamespace)
+	delete(packagePathMap, "plasma-core")
 	delete(packagePathMap, "plasma-work")
 
 	for name, path := range packagePathMap {
@@ -158,17 +157,17 @@ func HashFile(file io.ReadCloser) (uint64, error) {
 func HashFileFromCommit(c *object.Commit, path string) (uint64, *object.File, error) {
 	sectionMetaFile, err := c.File(path)
 	if err != nil {
-		return 0, nil, nil
+		return 0, nil, err
 	}
 
 	reader, err := sectionMetaFile.Reader()
 	if err != nil {
-		return 0, nil, nil
+		return 0, nil, err
 	}
 
 	hash, err := HashFile(reader)
 	if err != nil {
-		return 0, nil, nil
+		return 0, nil, err
 	}
 
 	return hash, sectionMetaFile, err
@@ -313,7 +312,6 @@ func CopyMap(origMap map[string]bool) map[string]bool {
 }
 
 func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResources *sync.OrderedMap[*sync.Resource], gitPath string, mx *async.Mutex, p *pterm.ProgressbarPrinter) error {
-	launchr.Term().Error().Println("3")
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
@@ -323,8 +321,6 @@ func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 	if err != nil {
 		return err
 	}
-
-	//return fmt.Errorf("emergency exit")
 
 	var wg async.WaitGroup
 	errorChan := make(chan error, 1)
@@ -379,7 +375,7 @@ func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 }
 
 func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *sync.OrderedMap[*CommitsGroup], commitsMap map[string]map[string]string, _ *git.Repository, gitPath string, mx *async.Mutex, p *pterm.ProgressbarPrinter) error {
-	mx.Lock()
+	//mx.Lock()
 
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
@@ -440,6 +436,8 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 	// If actual version doesn't match head commit. Ensure override is allowed.
 	// If override is not allowed, return error.
 	// In other case add new timeline item with overridden version.
+
+	overridden := false
 	if currentVersion != headVersion {
 		msg := fmt.Sprintf("Version of `%s` doesn't match HEAD commit", resource.GetName())
 		if !s.allowOverride {
@@ -447,49 +445,90 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 		}
 
 		launchr.Log().Warn(msg)
+		overridden = true
 	} else {
 		versionHash.hash = c.Hash.String()
 		versionHash.hashTime = c.Author.When
 		versionHash.author = c.Author.Name
 	}
 
-	//mx.Lock()
-	item, ok := commitsMap[currentVersion]
-	//mx.Unlock()
-	if !ok {
-		launchr.Log().Warn(fmt.Sprintf("Latest version of `%s` doesn't match any existing commit", resource.GetName()))
-	}
-
-	launchr.Term().Info().Printfln("hash %s", currentMetaHash)
-	launchr.Term().Info().Printfln("meta path - %s", resourceMetaPath)
-	launchr.Term().Info().Printfln("item for %s %s %v", resource.GetName(), currentVersion, item)
-
-	if len(item) == 0 {
-		commit, err := s.processUnknownSection(commitsGroups, resource.GetName(), resourceMetaPath, currentVersion, repo, currentMetaHash)
-		if err != nil {
-			return err
-		}
-
-		launchr.Term().Info().Printfln("%s - version set in %s - %s", resource.GetName(), commit.Author.Name, commit.Hash.String())
-	} else {
-		// ensure bump commit has the same file hash
-		section := item["section"]
-		if section == "head" {
-			panic("head?")
-		}
-		group, ok := commitsGroups.Get(section)
+	if !overridden {
+		// @todo rewrite to concurrent map ?
+		mx.Lock()
+		item, ok := commitsMap[currentVersion]
+		mx.Unlock()
 		if !ok {
-			panic("Group not found")
-		}
-		commit, err := s.processBumpSection(group, resource.GetName(), resourceMetaPath, currentVersion, repo, currentMetaHash)
-		if err != nil {
-			return err
+			launchr.Log().Warn(fmt.Sprintf("Latest version of `%s` doesn't match any existing commit", resource.GetName()))
 		}
 
-		launchr.Term().Info().Printfln("%s - version set in %s - %s", resource.GetName(), commit.Author.Name, commit.Hash.String())
+		launchr.Term().Info().Printfln("hash %s", currentMetaHash)
+		launchr.Term().Info().Printfln("meta path - %s", resourceMetaPath)
+		launchr.Term().Info().Printfln("item for %s %s %v", resource.GetName(), currentVersion, item)
+		var commit *object.Commit
+		var errProcess error
+
+		if len(item) == 0 {
+			commit, errProcess = s.processUnknownSection(commitsGroups, resource.GetName(), resourceMetaPath, currentVersion, repo, currentMetaHash)
+			if errors.Is(errProcess, runManualError) {
+				commit, errProcess = s.findFromAll(commitsGroups, resourceMetaPath, currentVersion, repo, currentMetaHash)
+			}
+
+			if errProcess != nil {
+				return errProcess
+			}
+
+			launchr.Term().Info().Printfln("%s - version set in %s - %s", resource.GetName(), commit.Author.Name, commit.Hash.String())
+		} else {
+			// ensure bump commit has the same file hash
+			section := item["section"]
+			if section == "head" {
+				panic("head?")
+			}
+
+			group, okSection := commitsGroups.Get(section)
+			if !okSection {
+				panic("Group not found")
+			}
+
+			commit, errProcess = s.processBumpSection(group, resource.GetName(), resourceMetaPath, currentVersion, repo, currentMetaHash)
+			if errors.Is(errProcess, runManualError) {
+				commit, errProcess = s.findFromAll(commitsGroups, resourceMetaPath, currentVersion, repo, currentMetaHash)
+			}
+
+			if errProcess != nil {
+				return errProcess
+			}
+
+			launchr.Term().Info().Printfln("%s - version set in %s - %s", resource.GetName(), commit.Author.Name, commit.Hash.String())
+		}
+
+		versionHash.hash = commit.Hash.String()
+		versionHash.hashTime = commit.Author.When
+		versionHash.author = commit.Author.Name
 	}
 
-	mx.Unlock()
+	mx.Lock()
+	defer mx.Unlock()
+
+	launchr.Log().Debug("add resource to timeline",
+		slog.String("mrn", resource.GetName()),
+		slog.String("commit", versionHash.hash),
+		slog.String("version", currentVersion),
+		slog.Time("date", versionHash.hashTime),
+	)
+
+	if versionHash.author != repository.Author && versionHash.author != buildHackAuthor {
+		launchr.Log().Warn(fmt.Sprintf("Latest commit of %s is not a bump commit", resource.GetName()))
+	}
+
+	tri := sync.NewTimelineResourcesItem(currentVersion, versionHash.hash, versionHash.hashTime)
+	tri.AddResource(resource)
+
+	s.timeline = sync.AddToTimeline(s.timeline, tri)
+
+	if p != nil {
+		p.Increment()
+	}
 
 	return nil
 
@@ -588,6 +627,11 @@ func (s *SyncAction) findFromAll(commitsGroups *sync.OrderedMap[*CommitsGroup], 
 
 			sectionMetaHash, sectionMetaFile, err := HashFileFromCommit(sectionCommit, resourceMetaPath)
 			if err != nil {
+				// iterate until we find group which contains resource with current version.
+				if errors.Is(err, object.ErrFileNotFound) {
+					continue
+				}
+
 				return nil, err
 			}
 
@@ -617,6 +661,7 @@ func (s *SyncAction) findFromAll(commitsGroups *sync.OrderedMap[*CommitsGroup], 
 			}
 
 			if fileHash == itemMetaHash {
+				commitWeNeed = itemCommit
 				continue
 			}
 
@@ -658,6 +703,10 @@ func (s *SyncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*Commi
 
 			sectionMetaHash, _, err := HashFileFromCommit(sectionCommit, resourceMetaPath)
 			if err != nil {
+				if errors.Is(err, object.ErrFileNotFound) {
+					continue
+				}
+
 				return nil, err
 			}
 
@@ -692,11 +741,12 @@ func (s *SyncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*Commi
 
 				prevVer := sync.GetMetaVersion(itemMetaYaml)
 				if prevVer == currentVersion {
+					//return nil, runManualError
 					panic("version match when shouldn't")
 				}
 			} else {
 				launchr.Term().Warning().Printfln("hashes match, need to manually iterate - 2 %s %s", sectionCommit, itemCommit)
-				panic("hashes match, need to manually iterate - 2")
+				return nil, runManualError
 			}
 
 			return sectionCommit, nil
@@ -721,7 +771,7 @@ func (s *SyncAction) processBumpSection(group *CommitsGroup, mrn, resourceMetaPa
 
 	if originalHash != sectionMetaHash {
 		// Send to manual search
-		panic("unhandled yet")
+		return nil, runManualError
 	}
 
 	launchr.Term().Error().Printfln("hashes for %s match", mrn)
