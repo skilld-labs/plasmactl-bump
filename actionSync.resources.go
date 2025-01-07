@@ -375,16 +375,9 @@ func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 }
 
 func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *sync.OrderedMap[*CommitsGroup], commitsMap map[string]map[string]string, _ *git.Repository, gitPath string, mx *async.Mutex, p *pterm.ProgressbarPrinter) error {
-	//mx.Lock()
-
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return err
-	}
-
-	launchr.Term().Info().Printfln("processResource %s", resource.GetName())
-	if resource == nil {
-		panic("Can't process resource, item is empty")
 	}
 
 	buildResource := sync.NewResource(resource.GetName(), s.buildDir)
@@ -404,21 +397,21 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 		return err
 	}
 
-	c, err := repo.CommitObject(head.Hash())
+	headCommit, err := repo.CommitObject(head.Hash())
 	if err != nil {
 		return err
 	}
 
 	resourceMetaPath := resource.BuildMetaPath()
 
-	file, err := c.File(resourceMetaPath)
+	file, err := headCommit.File(resourceMetaPath)
 	if err != nil {
-		return fmt.Errorf("open file %s in commit %s > %w", resourceMetaPath, c.Hash, err)
+		return fmt.Errorf("open file %s in commit %s > %w", resourceMetaPath, headCommit.Hash, err)
 	}
 
 	metaFile, err := s.loadYamlFileFromBytes(file, resourceMetaPath)
 	if err != nil {
-		return fmt.Errorf("commit %s > %w", c.Hash, err)
+		return fmt.Errorf("commit %s > %w", headCommit.Hash, err)
 	}
 
 	reader, err := file.Reader()
@@ -447,9 +440,9 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 		launchr.Log().Warn(msg)
 		overridden = true
 	} else {
-		versionHash.hash = c.Hash.String()
-		versionHash.hashTime = c.Author.When
-		versionHash.author = c.Author.Name
+		versionHash.hash = headCommit.Hash.String()
+		versionHash.hashTime = headCommit.Author.When
+		versionHash.author = headCommit.Author.Name
 	}
 
 	if !overridden {
@@ -461,9 +454,9 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 			launchr.Log().Warn(fmt.Sprintf("Latest version of `%s` doesn't match any existing commit", resource.GetName()))
 		}
 
-		launchr.Term().Info().Printfln("hash %s", currentMetaHash)
-		launchr.Term().Info().Printfln("meta path - %s", resourceMetaPath)
-		launchr.Term().Info().Printfln("item for %s %s %v", resource.GetName(), currentVersion, item)
+		//launchr.Term().Info().Printfln("hash %s", currentMetaHash)
+		//launchr.Term().Info().Printfln("meta path - %s", resourceMetaPath)
+		//launchr.Term().Info().Printfln("item for %s %s %v", resource.GetName(), currentVersion, item)
 		var commit *object.Commit
 		var errProcess error
 
