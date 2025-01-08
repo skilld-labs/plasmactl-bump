@@ -392,7 +392,7 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 
 	ref, err := repo.Head()
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting HEAD commit > %w", err)
 	}
 
 	var varsYaml map[string]any
