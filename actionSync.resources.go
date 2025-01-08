@@ -23,7 +23,11 @@ import (
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
 )
 
-var runManualError = fmt.Errorf("run manual")
+var errRunBruteProcess = fmt.Errorf("run brute")
+
+const (
+	headGroupName = "head"
+)
 
 func (s *SyncAction) populateTimelineResources(resources map[string]*sync.OrderedMap[*sync.Resource], packagePathMap map[string]string) error {
 	var wg async.WaitGroup
@@ -112,7 +116,7 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	// Sleep to re-render progress bar. Needed to achieve latest state.
 	if s.verbosity < 1 {
 		time.Sleep(multi.UpdateDelay)
-		multi.Stop() //nolint
+		_, _ = multi.Stop()
 	}
 
 	sync.SortTimelineAsc(s.timeline)
@@ -131,10 +135,11 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 		}
 	}
 
-	return fmt.Errorf("emergency exit 2")
+	//return fmt.Errorf("emergency exit 2")
 	return nil
 }
 
+// CommitsGroup is simple struct that contains list of commits under some group. Group has name, date and parent commit.
 type CommitsGroup struct {
 	name   string
 	commit string
@@ -158,6 +163,7 @@ type CommitsGroup struct {
 //	return hash.Sum64(), nil
 //}
 
+// HashFile hashes file content by xxhash.
 func HashFile(file io.ReadCloser) (uint64, error) {
 	hash := xxhash.New()
 	_, err := io.Copy(hash, file)
@@ -168,6 +174,7 @@ func HashFile(file io.ReadCloser) (uint64, error) {
 	return hash.Sum64(), nil
 }
 
+// HashFileFromCommit hashes file content of commit by xxhash.
 func HashFileFromCommit(c *object.Commit, path string) (uint64, *object.File, error) {
 	file, err := c.File(path)
 	if err != nil {
@@ -233,7 +240,7 @@ func collectResourcesCommits(r *git.Repository) (*sync.OrderedMap[*CommitsGroup]
 				hashes[hash]["section"] = sectionName
 			} else {
 				section = ref.Hash().String()
-				sectionName = "head"
+				sectionName = headGroupName
 				hashes[hash]["section"] = sectionName
 				commits = append(commits, c.Hash.String())
 			}
@@ -300,7 +307,8 @@ func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 
 	var wg async.WaitGroup
 	errorChan := make(chan error, 1)
-	maxWorkers := 2
+	//maxWorkers := 3
+	maxWorkers := runtime.NumCPU()
 	resourcesChan := make(chan *sync.Resource, namespaceResources.Len())
 
 	for w := 0; w < maxWorkers; w++ {
@@ -315,7 +323,7 @@ func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 					}
 					if err = s.processResource(r, groups, commitsMap, repo, gitPath, mx); err != nil {
 						if p != nil {
-							_, _ = p.Stop() //nolint
+							_, _ = p.Stop()
 						}
 
 						select {
@@ -444,22 +452,16 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 		if len(item) == 0 {
 			commit, errProcess = s.processUnknownSection(commitsGroups, resource.GetName(), resourceMetaPath, currentVersion, repo, currentMetaHash)
 		} else {
-			// Ensure bump commit has the same file hash
-			section := item["section"]
-			if section == "head" {
-				panic("head?")
-			}
-
-			group, okSection := commitsGroups.Get(section)
+			group, okSection := commitsGroups.Get(item["section"])
 			if !okSection {
-				panic("Group not found")
+				panic(fmt.Sprintf("Requested group %s doesn't exist", item["section"]))
 			}
 
 			commit, errProcess = s.processBumpSection(group, resource.GetName(), resourceMetaPath, currentVersion, repo, currentMetaHash)
 		}
 
-		if errors.Is(errProcess, runManualError) {
-			commit, errProcess = s.findFromAll(commitsGroups, resourceMetaPath, currentVersion, repo, currentMetaHash)
+		if errors.Is(errProcess, errRunBruteProcess) {
+			commit, errProcess = s.processAllSections(commitsGroups, resourceMetaPath, currentVersion, repo, currentMetaHash)
 		}
 
 		if errProcess != nil {
@@ -497,21 +499,23 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 	return nil
 }
 
-func (s *SyncAction) findFromAll(commitsGroups *sync.OrderedMap[*CommitsGroup], resourceMetaPath, currentVersion string, repo *git.Repository, originalHash uint64) (*object.Commit, error) {
+func (s *SyncAction) processAllSections(commitsGroups *sync.OrderedMap[*CommitsGroup], resourceMetaPath, currentVersion string, repo *git.Repository, originalHash uint64) (*object.Commit, error) {
 	keys := commitsGroups.Keys()
 	for i := commitsGroups.Len() - 1; i >= 0; i-- {
+		group, _ := commitsGroups.Get(keys[i])
+		sectionCommit, errGr := repo.CommitObject(plumbing.NewHash(group.commit))
+		if errGr != nil {
+			return nil, errGr
+		}
+
 		var commitWeNeed *object.Commit
 		var fileHash uint64
-		group, _ := commitsGroups.Get(keys[i])
-		if group.name == "head" {
-			fileHash = originalHash
-			panic("Head group Not implemented yet.")
-		} else {
-			sectionCommit, err := repo.CommitObject(plumbing.NewHash(group.commit))
-			if err != nil {
-				return nil, err
-			}
 
+		if group.name == headGroupName {
+			// Well, if we are in head, it's the final line of defense.
+			fileHash = originalHash
+			commitWeNeed = sectionCommit
+		} else {
 			sectionMetaHash, sectionMetaFile, err := HashFileFromCommit(sectionCommit, resourceMetaPath)
 			if err != nil {
 				// Iterate until we find group which contains resource with current version.
@@ -549,7 +553,6 @@ func (s *SyncAction) findFromAll(commitsGroups *sync.OrderedMap[*CommitsGroup], 
 					break
 				}
 
-				launchr.Term().Error().Printfln("99 %s %s %s > %s", resourceMetaPath, itemCommit.Hash.String(), errItm.Error())
 				return nil, errItm
 			}
 
@@ -583,77 +586,88 @@ func (s *SyncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*Commi
 	for i := commitsGroups.Len() - 1; i >= 0; i-- {
 		group, _ := commitsGroups.Get(keys[i])
 
-		if group.name == "head" {
-			panic("Head group Not implemented yet.")
-		} else {
-			sectionCommit, err := repo.CommitObject(plumbing.NewHash(group.commit))
-			if err != nil {
-				return nil, err
-			}
+		if group.name == headGroupName {
+			// Well, you should have bumped your results, because we can't be sure that version was actually set in
+			// head.
+			// i.e. someone updated meta file (changed author), didn't bump, but version came from previous bump and in
+			// this function first comparison done by file hash.
+			return nil, errRunBruteProcess
+		}
+		sectionCommit, err := repo.CommitObject(plumbing.NewHash(group.commit))
+		if err != nil {
+			return nil, err
+		}
 
-			sectionMetaHash, _, err := HashFileFromCommit(sectionCommit, resourceMetaPath)
-			if err != nil {
-				if errors.Is(err, object.ErrFileNotFound) {
-					continue
-				}
-
-				return nil, err
-			}
-
-			if originalHash != sectionMetaHash {
+		sectionMetaHash, _, err := HashFileFromCommit(sectionCommit, resourceMetaPath)
+		if err != nil {
+			if errors.Is(err, object.ErrFileNotFound) {
 				continue
 			}
 
-			item := group.items[0]
-
-			itemCommit, errItem := repo.CommitObject(plumbing.NewHash(item))
-			if errItem != nil {
-				return nil, errItem
-			}
-
-			itemMetaHash, itemMetaFile, errItem := HashFileFromCommit(itemCommit, resourceMetaPath)
-			if errItem != nil {
-				// How it's possible to not have meta file in commit before bump ?
-				// @todo either send to manual search or accept bump commit to speedup things.
-				if errors.Is(err, object.ErrFileNotFound) {
-					panic("321")
-					return nil, runManualError
-				}
-
-				launchr.Term().Error().Printfln("%s %s %s > %s", mrn, sectionCommit.Hash.String(), itemCommit.Hash.String(), errItem.Error())
-				return nil, errItem
-			}
-
-			// Hashes don't match, as expected
-			if originalHash != itemMetaHash {
-				// Ensure real version is different
-				itemMetaYaml, errMeta := s.loadYamlFileFromBytes(itemMetaFile, resourceMetaPath)
-				if errMeta != nil {
-					launchr.Term().Error().Printfln("%s %s %s", mrn, sectionCommit.Hash.String(), itemCommit.Hash.String())
-					return nil, fmt.Errorf("commit %s > %w", itemCommit.Hash, errMeta)
-				}
-
-				prevVer := sync.GetMetaVersion(itemMetaYaml)
-
-				// Version match when shouldn't
-				if prevVer == currentVersion {
-					return nil, runManualError
-				}
-			} else {
-				// File hashes match when shouldn't
-				return nil, runManualError
-			}
-
-			return sectionCommit, nil
+			return nil, err
 		}
+
+		if originalHash != sectionMetaHash {
+			continue
+		}
+
+		if len(group.items) == 0 {
+			// Something wrong with process in this case. It's not possible to have version from head commits group.
+			// Either someone can predict future or git history was manipulated. Send to manual search in this case.
+			return nil, errRunBruteProcess
+		}
+
+		item := group.items[0]
+
+		itemCommit, errItem := repo.CommitObject(plumbing.NewHash(item))
+		if errItem != nil {
+			return nil, errItem
+		}
+
+		itemMetaHash, itemMetaFile, errItem := HashFileFromCommit(itemCommit, resourceMetaPath)
+		if errItem != nil {
+			// How it's possible to not have meta file in commit before bump ?
+			// @todo case looks impossible, maybe makes sense to panic here
+			if errors.Is(err, object.ErrFileNotFound) {
+				return nil, errRunBruteProcess
+			}
+
+			launchr.Term().Error().Printfln("%s %s %s > %s", mrn, sectionCommit.Hash.String(), itemCommit.Hash.String(), errItem.Error())
+			return nil, errItem
+		}
+
+		// Hashes don't match, as expected
+		if originalHash != itemMetaHash {
+			// Ensure real version is different
+			itemMetaYaml, errMeta := s.loadYamlFileFromBytes(itemMetaFile, resourceMetaPath)
+			if errMeta != nil {
+				launchr.Term().Error().Printfln("%s %s %s", mrn, sectionCommit.Hash.String(), itemCommit.Hash.String())
+				return nil, fmt.Errorf("commit %s > %w", itemCommit.Hash, errMeta)
+			}
+
+			itemVer := sync.GetMetaVersion(itemMetaYaml)
+
+			// Version match when shouldn't
+			if itemVer == currentVersion {
+				return nil, errRunBruteProcess
+			}
+		} else {
+			// File hashes match when shouldn't
+			return nil, errRunBruteProcess
+		}
+
+		return sectionCommit, nil
 	}
 
 	return nil, fmt.Errorf("empty groups provided")
 }
 
 func (s *SyncAction) processBumpSection(group *CommitsGroup, mrn, resourceMetaPath, currentVersion string, repo *git.Repository, originalHash uint64) (*object.Commit, error) {
-	if len(group.items) == 0 {
+	if group.name == headGroupName || len(group.items) == 0 {
+		// Something wrong with process in this case. It's not possible to have version from head commits group.
+		// Either someone can predict future or git history was manipulated. Send to manual search in this case.
 		panic(fmt.Sprintf("zero section items: %s %s", group.name, group.date))
+		return nil, errRunBruteProcess
 	}
 
 	// Ensure bump commit has the same file hash
@@ -666,7 +680,7 @@ func (s *SyncAction) processBumpSection(group *CommitsGroup, mrn, resourceMetaPa
 	if err != nil {
 		// 'Bad' resource version was used and assigned to group. Requires manual search.
 		if errors.Is(err, object.ErrFileNotFound) {
-			return nil, runManualError
+			return nil, errRunBruteProcess
 		}
 
 		launchr.Term().Error().Printfln("%s %s > %s", mrn, sectionCommit.Hash.String(), err.Error())
@@ -675,7 +689,7 @@ func (s *SyncAction) processBumpSection(group *CommitsGroup, mrn, resourceMetaPa
 
 	if originalHash != sectionMetaHash {
 		// 'Bad' resource version was used and assigned to group, but file exists. Requires manual search.
-		return nil, runManualError
+		return nil, errRunBruteProcess
 	}
 
 	// Ensure version from next item commit is different from bump commit.
@@ -688,13 +702,12 @@ func (s *SyncAction) processBumpSection(group *CommitsGroup, mrn, resourceMetaPa
 	itemMetaHash, itemMetaFile, errItem := HashFileFromCommit(itemCommit, resourceMetaPath)
 	if errItem != nil {
 		// How it's possible to not have meta file in commit before bump ?
-		// @todo either send to manual search or accept bump commit to speedup things.
+		// @todo case looks impossible, maybe makes sense to panic here
 		if errors.Is(err, object.ErrFileNotFound) {
 			panic("123")
-			return nil, runManualError
+			return nil, errRunBruteProcess
 		}
 
-		launchr.Term().Error().Printfln("0 %s %s %s > %s", mrn, sectionCommit.Hash.String(), itemCommit.Hash.String(), errItem.Error())
 		return nil, errItem
 	}
 
@@ -710,12 +723,12 @@ func (s *SyncAction) processBumpSection(group *CommitsGroup, mrn, resourceMetaPa
 		// Version match when shouldn't
 		if itemVersion == currentVersion {
 			//panic("versions match when shouldn't")
-			return nil, runManualError
+			return nil, errRunBruteProcess
 		}
 	} else {
 		// File hashes match when shouldn't
 		//panic("hashes match, need to manually iterate - 1")
-		return nil, runManualError
+		return nil, errRunBruteProcess
 	}
 
 	return sectionCommit, nil

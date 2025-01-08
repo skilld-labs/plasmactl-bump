@@ -179,13 +179,11 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory) error {
 		return fmt.Errorf("iteraring resources > %w", err)
 	}
 
-	return fmt.Errorf("fast exit")
-
-	//launchr.Log().Info("Populate timeline with variables")
-	//err = s.populateTimelineVars()
-	//if err != nil {
-	//	return fmt.Errorf("iteraring variables > %w", err)
-	//}
+	launchr.Log().Info("Populate timeline with variables")
+	err = s.populateTimelineVars()
+	if err != nil {
+		return fmt.Errorf("iteraring variables > %w", err)
+	}
 
 	return nil
 }
@@ -591,9 +589,9 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 					// Skip resource if it was processed by previous timeline item or previous resource (via deps).
 					if processed[dep] {
 						continue
-					} else {
-						processed[dep] = true
 					}
+
+					processed[dep] = true
 
 					toPropagate.Set(dep, depResource)
 					resourceVersionMap[dep] = i.GetVersion()
@@ -673,9 +671,9 @@ func (s *SyncAction) buildPropagationMap(buildInv *sync.Inventory, timeline []sy
 					// Skip resource if it was processed by previous timeline item or previous resource (via deps).
 					if processed[dep] {
 						continue
-					} else {
-						processed[dep] = true
 					}
+
+					processed[dep] = true
 
 					toPropagate.Set(dep, depResource)
 					resourceVersionMap[dep] = i.GetVersion()
