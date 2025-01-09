@@ -396,7 +396,7 @@ func (i *Inventory) processGroup(ctx context.Context, vaultPass, group string, f
 func (i *Inventory) processFile(file, group, vaultPass string, groupKeys map[string]map[string]bool, groupVars map[string]map[string]string, mx *sync.Mutex) error {
 	data, err := LoadVariablesFile(filepath.Join(i.sourceDir, file), vaultPass, IsVaultFile(file))
 	if err != nil {
-		return err
+		return fmt.Errorf("%s > %w", file, err)
 	}
 
 	i.extractKeysAndVars(data, group, groupKeys, groupVars, "", 0, mx)
