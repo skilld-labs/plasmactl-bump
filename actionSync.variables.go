@@ -16,6 +16,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/launchrctl/launchr"
 	"github.com/pterm/pterm"
+
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
 )
 
@@ -147,7 +148,11 @@ func (s *SyncAction) populateTimelineVars() error {
 					if !ok {
 						return
 					}
-					if err = s.findVariableUpdateTime(varsFile, s.domainDir, &mx, p); err != nil {
+					if err = s.findVariableUpdateTime(varsFile, s.domainDir, &mx); err != nil {
+						if p != nil {
+							_, _ = p.Stop()
+						}
+
 						select {
 						case errorChan <- fmt.Errorf("worker %d error processing %s: %w", workerID, varsFile, err):
 							cancel()
@@ -155,6 +160,11 @@ func (s *SyncAction) populateTimelineVars() error {
 						}
 						return
 					}
+
+					if p != nil {
+						p.Increment()
+					}
+
 					wg.Done()
 				}
 			}
@@ -178,12 +188,10 @@ func (s *SyncAction) populateTimelineVars() error {
 		}
 	}
 
-	return fmt.Errorf("emergency exit 3")
-
 	return nil
 }
 
-func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx *async.Mutex, p *pterm.ProgressbarPrinter) error {
+func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx *async.Mutex) error {
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
@@ -191,7 +199,7 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 
 	ref, err := repo.Head()
 	if err != nil {
-		return fmt.Errorf("error getting HEAD commit > %w", err)
+		return fmt.Errorf("error getting HEAD ref > %w", err)
 	}
 
 	var varsYaml map[string]any
@@ -217,8 +225,18 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 		hashesMap[k].author = buildHackAuthor
 	}
 
-	toIterate := variablesMap.ToDict()
+	//varsFileHash, err := HashFileFromPath(filepath.Join(s.buildDir, varsFile))
+	//if err != nil {
+	//	return fmt.Errorf("can't hash vars file %s > %w", varsFile, err)
+	//}
 
+	varsFileHash := ""
+
+	// Used to set versions after difference found.
+	// To prevent assigning same versions multiple times.
+	var danglingCommit *object.Commit
+
+	toIterate := variablesMap.ToDict()
 	cIter, err := repo.Log(&git.LogOptions{From: ref.Hash()})
 	if err != nil {
 		return err
@@ -235,18 +253,48 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 			launchr.Log().Debug(fmt.Sprintf("Remaining unidentified variables, %s - %d", varsFile, remainingDebug))
 		}
 
+		//commitFileHash, file, errIt := HashFileFromCommit(c, varsFile)
+		//if errIt != nil {
+		//	if !errors.Is(errIt, object.ErrFileNotFound) {
+		//		return fmt.Errorf("open file %s in commit %s > %w", varsFile, c.Hash, errIt)
+		//	}
+		//
+		//	return storer.ErrStop
+		//}
+
 		file, errIt := c.File(varsFile)
 		if errIt != nil {
 			if !errors.Is(errIt, object.ErrFileNotFound) {
-				return fmt.Errorf("open file %s in commit %s > %w", varsFile, c.Hash, errIt)
+				return fmt.Errorf("opening file %s in commit %s > %w", varsFile, c.Hash, errIt)
 			}
 
 			return storer.ErrStop
 		}
 
+		commitFileHash := file.Hash.String()
+
+		// No need to iterate file if it's the same between commits.
+		if varsFileHash == commitFileHash {
+			danglingCommit = c
+
+			return nil
+		}
+
+		if danglingCommit != nil {
+			for k := range toIterate {
+				hashesMap[k].hash = danglingCommit.Hash.String()
+				hashesMap[k].hashTime = danglingCommit.Author.When
+				hashesMap[k].author = danglingCommit.Author.Name
+			}
+
+			danglingCommit = nil
+		}
+
 		varFile, errIt := s.loadVariablesFileFromBytes(file, varsFile, isVault)
 		if errIt != nil {
-			if strings.Contains(errIt.Error(), "did not find expected key") || strings.Contains(errIt.Error(), "could not find expected") {
+			if strings.Contains(errIt.Error(), "did not find expected key") ||
+				strings.Contains(errIt.Error(), "did not find expected comment or line break") ||
+				strings.Contains(errIt.Error(), "could not find expected") {
 				launchr.Log().Warn("Bad YAML structured detected",
 					slog.String("file", varsFile),
 					slog.String("commit", c.Hash.String()),
@@ -276,7 +324,9 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 			return fmt.Errorf("commit %s > %w", c.Hash, errIt)
 		}
 
-		for k, hh := range toIterate {
+		varsFileHash = commitFileHash
+
+		for k, v := range toIterate {
 			prevVar, exists := varFile[k]
 			if !exists {
 				// Variable didn't exist before, take current hash as version
@@ -285,7 +335,7 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 			}
 
 			prevVarHash := HashString(fmt.Sprint(prevVar))
-			if hh.GetHash() != prevVarHash {
+			if v.GetHash() != prevVarHash {
 				// Variable exists, hashes don't match, stop iterating
 				delete(toIterate, k)
 				continue
@@ -301,6 +351,16 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 
 	if err != nil {
 		return err
+	}
+
+	if danglingCommit != nil {
+		for k := range toIterate {
+			hashesMap[k].hash = danglingCommit.Hash.String()
+			hashesMap[k].hashTime = danglingCommit.Author.When
+			hashesMap[k].author = danglingCommit.Author.Name
+		}
+
+		danglingCommit = nil
 	}
 
 	mx.Lock()
@@ -319,10 +379,6 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 		if hm.author == buildHackAuthor {
 			msg := fmt.Sprintf("Value of `%s` doesn't match HEAD commit", n)
 			if !s.allowOverride {
-				if p != nil {
-					p.Stop() //nolint
-				}
-
 				return errors.New(msg)
 			}
 
@@ -333,10 +389,6 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 		tri.AddVariable(v)
 
 		s.timeline = sync.AddToTimeline(s.timeline, tri)
-	}
-
-	if p != nil {
-		p.Increment()
 	}
 
 	return err

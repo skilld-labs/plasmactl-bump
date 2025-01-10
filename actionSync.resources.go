@@ -11,11 +11,10 @@ import (
 	"time"
 
 	"github.com/cespare/xxhash/v2"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/storer"
-
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/launchrctl/launchr"
 	"github.com/pterm/pterm"
 
@@ -119,21 +118,21 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 		_, _ = multi.Stop()
 	}
 
-	sync.SortTimelineAsc(s.timeline)
-
-	launchr.Log().Info("Iterating timeline")
-	for _, item := range s.timeline {
-		switch i := item.(type) {
-		case *sync.TimelineResourcesItem:
-			res := i.GetResources()
-			res.SortKeysAlphabetically()
-
-			for _, key := range res.Keys() {
-				r, _ := res.Get(key)
-				launchr.Term().Printfln("%s %s %s", r.GetName(), item.GetVersion(), item.GetDate().String())
-			}
-		}
-	}
+	//sync.SortTimelineAsc(s.timeline)
+	//
+	//launchr.Log().Info("Iterating timeline")
+	//for _, item := range s.timeline {
+	//	switch i := item.(type) {
+	//	case *sync.TimelineResourcesItem:
+	//		res := i.GetResources()
+	//		res.SortKeysAlphabetically()
+	//
+	//		for _, key := range res.Keys() {
+	//			r, _ := res.Get(key)
+	//			launchr.Term().Printfln("%s %s %s", r.GetName(), item.GetVersion(), item.GetDate().String())
+	//		}
+	//	}
+	//}
 
 	//return fmt.Errorf("emergency exit 2")
 	return nil
@@ -147,7 +146,19 @@ type CommitsGroup struct {
 	date   time.Time
 }
 
-//func HashFileByPath(path string) (uint64, error) {
+// HashFile hashes file content by xxhash.
+func HashFile(file io.ReadCloser) (uint64, error) {
+	hash := xxhash.New()
+	_, err := io.Copy(hash, file)
+	if err != nil {
+		return 0, err
+	}
+
+	return hash.Sum64(), nil
+}
+
+// HashFileFromPath hashes file from path by xxhash.
+//func HashFileFromPath(path string) (uint64, error) {
 //	file, err := os.Open(filepath.Clean(path))
 //	if err != nil {
 //		return 0, err
@@ -162,17 +173,6 @@ type CommitsGroup struct {
 //
 //	return hash.Sum64(), nil
 //}
-
-// HashFile hashes file content by xxhash.
-func HashFile(file io.ReadCloser) (uint64, error) {
-	hash := xxhash.New()
-	_, err := io.Copy(hash, file)
-	if err != nil {
-		return 0, err
-	}
-
-	return hash.Sum64(), nil
-}
 
 // HashFileFromCommit hashes file content of commit by xxhash.
 func HashFileFromCommit(c *object.Commit, path string) (uint64, *object.File, error) {
@@ -283,14 +283,14 @@ func collectResourcesCommits(r *git.Repository) (*sync.OrderedMap[*CommitsGroup]
 	}
 
 	// @todo remove
-	for _, k := range groups.Keys() {
-		group, _ := groups.Get(k)
-		launchr.Term().Info().Printfln("%s %s %s", group.date, group.name, group.commit)
-		for _, hs := range group.items {
-			launchr.Term().Warning().Printfln("- %s", hs)
-		}
-
-	}
+	//for _, k := range groups.Keys() {
+	//	group, _ := groups.Get(k)
+	//	launchr.Term().Info().Printfln("%s %s %s", group.date, group.name, group.commit)
+	//	for _, hs := range group.items {
+	//		launchr.Term().Warning().Printfln("- %s", hs)
+	//	}
+	//
+	//}
 
 	return groups, hashes, nil
 }

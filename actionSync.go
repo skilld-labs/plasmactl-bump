@@ -182,6 +182,7 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory) error {
 		return fmt.Errorf("iteraring variables > %w", err)
 	}
 
+	//return fmt.Errorf("emergency exit 3")
 	return nil
 }
 
@@ -665,7 +666,7 @@ func HashString(item string) uint64 {
 //	}
 //
 //	for f := range resourceFiles {
-//		buildHash, err := sync.HashFileByPath(filepath.Join(buildPath, f))
+//		buildHash, err := sync.HashFileFromPath(filepath.Join(buildPath, f))
 //		if err != nil {
 //			return err
 //		}
