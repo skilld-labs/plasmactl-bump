@@ -396,7 +396,7 @@ func (i *Inventory) processGroup(ctx context.Context, vaultPass, group string, f
 func (i *Inventory) processFile(file, group, vaultPass string, groupKeys map[string]map[string]bool, groupVars map[string]map[string]string, mx *sync.Mutex) error {
 	data, err := LoadVariablesFile(filepath.Join(i.sourceDir, file), vaultPass, IsVaultFile(file))
 	if err != nil {
-		return err
+		return fmt.Errorf("%s > %w", file, err)
 	}
 
 	i.extractKeysAndVars(data, group, groupKeys, groupVars, "", 0, mx)
@@ -623,7 +623,7 @@ func getPathPrefix(filePath string, parts int) string {
 func extractLinesWithVariables(filePath string) ([]string, error) {
 	file, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
-		return nil, fmt.Errorf("error opening file %s: %w", filePath, err)
+		return nil, fmt.Errorf("opening file %s: %w", filePath, err)
 	}
 
 	defer file.Close()
@@ -640,7 +640,7 @@ func extractLinesWithVariables(filePath string) ([]string, error) {
 		}
 	}
 	if err = scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading file %s: %w", filePath, err)
+		return nil, fmt.Errorf("reading file %s: %w", filePath, err)
 	}
 
 	return linesWithVariables, nil

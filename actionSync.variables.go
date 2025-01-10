@@ -115,7 +115,7 @@ func (s *SyncAction) populateTimelineVars() error {
 	filesCrawler := sync.NewFilesCrawler(s.domainDir)
 	groupedFiles, err := filesCrawler.FindVarsFiles("")
 	if err != nil {
-		return err
+		return fmt.Errorf("can't get vars files > %w", err)
 	}
 
 	var varsFiles []string
@@ -199,7 +199,7 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 
 	ref, err := repo.Head()
 	if err != nil {
-		return fmt.Errorf("error getting HEAD ref > %w", err)
+		return fmt.Errorf("can't get HEAD ref > %w", err)
 	}
 
 	var varsYaml map[string]any
@@ -256,7 +256,7 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 		//commitFileHash, file, errIt := HashFileFromCommit(c, varsFile)
 		//if errIt != nil {
 		//	if !errors.Is(errIt, object.ErrFileNotFound) {
-		//		return fmt.Errorf("open file %s in commit %s > %w", varsFile, c.Hash, errIt)
+		//		return fmt.Errorf("opening file %s in commit %s > %w", varsFile, c.Hash, errIt)
 		//	}
 		//
 		//	return storer.ErrStop
@@ -321,7 +321,7 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, gitPath string, mx 
 				return nil
 			}
 
-			return fmt.Errorf("commit %s > %w", c.Hash, errIt)
+			return fmt.Errorf("YAML load commit %s > %w", c.Hash, errIt)
 		}
 
 		varsFileHash = commitFileHash

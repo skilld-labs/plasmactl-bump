@@ -197,7 +197,7 @@ func HashFileFromCommit(c *object.Commit, path string) (uint64, *object.File, er
 func collectResourcesCommits(r *git.Repository) (*sync.OrderedMap[*CommitsGroup], map[string]map[string]string, error) {
 	ref, err := r.Head()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error getting HEAD ref > %w", err)
+		return nil, nil, fmt.Errorf("can't get HEAD ref > %w", err)
 	}
 
 	hashes := make(map[string]map[string]string)
@@ -303,7 +303,7 @@ func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 
 	groups, commitsMap, err := collectResourcesCommits(repo)
 	if err != nil {
-		return err
+		return fmt.Errorf("collect resources commits > %w", err)
 	}
 
 	var wg async.WaitGroup
@@ -387,7 +387,7 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 
 	head, err := repo.Head()
 	if err != nil {
-		return fmt.Errorf("error getting HEAD ref > %w", err)
+		return fmt.Errorf("can't get HEAD ref > %w", err)
 	}
 
 	headCommit, err := repo.CommitObject(head.Hash())
@@ -399,12 +399,12 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 
 	file, err := headCommit.File(resourceMetaPath)
 	if err != nil {
-		return fmt.Errorf("open file %s in commit %s > %w", resourceMetaPath, headCommit.Hash, err)
+		return fmt.Errorf("opening file %s in commit %s > %w", resourceMetaPath, headCommit.Hash, err)
 	}
 
 	metaFile, err := s.loadYamlFileFromBytes(file, resourceMetaPath)
 	if err != nil {
-		return fmt.Errorf("commit %s > %w", headCommit.Hash, err)
+		return fmt.Errorf("YAML load commit %s > %w", headCommit.Hash, err)
 	}
 
 	reader, err := file.Reader()
@@ -414,7 +414,7 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 
 	currentMetaHash, err := HashFile(reader)
 	if err != nil {
-		return fmt.Errorf("current meta hash error - %w", err)
+		return fmt.Errorf("current meta hash > %w", err)
 	}
 
 	headVersion := sync.GetMetaVersion(metaFile)
@@ -530,7 +530,7 @@ func (s *SyncAction) processAllSections(commitsGroups *sync.OrderedMap[*CommitsG
 
 			sectionMetaYaml, err := s.loadYamlFileFromBytes(sectionMetaFile, resourceMetaPath)
 			if err != nil {
-				return nil, fmt.Errorf("commit %s > %w", group.commit, err)
+				return nil, fmt.Errorf("YAML load group commit %s > %w", group.commit, err)
 			}
 
 			sectionVersion := sync.GetMetaVersion(sectionMetaYaml)
@@ -565,7 +565,7 @@ func (s *SyncAction) processAllSections(commitsGroups *sync.OrderedMap[*CommitsG
 
 			itemMetaYaml, errItm := s.loadYamlFileFromBytes(itemMetaFile, resourceMetaPath)
 			if errItm != nil {
-				return nil, fmt.Errorf("commit %s > %w", itemCommit.Hash, errItm)
+				return nil, fmt.Errorf("YAML load item commit %s > %w", itemCommit.Hash, errItm)
 			}
 
 			prevVer := sync.GetMetaVersion(itemMetaYaml)
@@ -641,7 +641,7 @@ func (s *SyncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*Commi
 			// Ensure real version is different
 			itemMetaYaml, errMeta := s.loadYamlFileFromBytes(itemMetaFile, resourceMetaPath)
 			if errMeta != nil {
-				return nil, fmt.Errorf("commit %s > %w", itemCommit.Hash, errMeta)
+				return nil, fmt.Errorf("YAML load item commit %s > %w", itemCommit.Hash, errMeta)
 			}
 
 			itemVer := sync.GetMetaVersion(itemMetaYaml)
@@ -714,7 +714,7 @@ func (s *SyncAction) processBumpSection(group *CommitsGroup, resourceMetaPath, c
 		// ensure real version is different
 		itemMetaYaml, errMeta := s.loadYamlFileFromBytes(itemMetaFile, resourceMetaPath)
 		if errMeta != nil {
-			return nil, fmt.Errorf("item commit %s > %w", itemCommit.Hash.String(), errMeta)
+			return nil, fmt.Errorf("YAML load item commit %s > %w", itemCommit.Hash.String(), errMeta)
 		}
 
 		itemVersion := sync.GetMetaVersion(itemMetaYaml)
