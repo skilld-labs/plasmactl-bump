@@ -11,7 +11,7 @@ action:
       default: false
     - name: dry-run
       title: Dry-run
-      description: Simulate propagate without doing anything
+      description: Simulate bump or sync without updating any file
       type: boolean
       default: false
     - name: allow-override
