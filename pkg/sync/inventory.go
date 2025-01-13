@@ -3,6 +3,7 @@ package sync
 
 import (
 	"fmt"
+	"github.com/launchrctl/launchr"
 	"os"
 	"path/filepath"
 	"strings"
@@ -274,18 +275,135 @@ func (i *Inventory) lookupDependenciesRecursively(resourceName string, resources
 
 // GetChangedResources returns an OrderedResourceMap containing the resources that have been modified, based on the provided list of modified files.
 // It iterates over the modified files, builds a resource from each file path, and adds it to the result map if it is not already present.
-func (i *Inventory) GetChangedResources(files []string) *OrderedMap[*Resource] {
-	resources := NewOrderedMap[*Resource]()
-	for _, path := range files {
-		resource := BuildResourceFromPath(path, i.sourceDir)
-		if resource == nil {
-			continue
+//func (i *Inventory) GetChangedResources(files []string) *OrderedMap[*Resource] {
+//	resources := NewOrderedMap[*Resource]()
+//	for _, path := range files {
+//		resource := BuildResourceFromPath(path, i.sourceDir)
+//		if resource == nil {
+//			continue
+//		}
+//		if _, ok := resources.Get(resource.GetName()); ok {
+//			continue
+//		}
+//		resources.Set(resource.GetName(), resource)
+//	}
+//
+//	return resources
+//}
+
+func (i *Inventory) GetUsedResources() (map[string]bool, error) {
+	file, err := os.ReadFile(filepath.Join(i.sourceDir, "platform/platform.yaml"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			launchr.Log().Warn("platform/platform.yaml playbook doesn't exist")
+			return nil, nil
 		}
-		if _, ok := resources.Get(resource.GetName()); ok {
-			continue
-		}
-		resources.Set(resource.GetName(), resource)
+
+		return nil, err
 	}
 
-	return resources
+	var platformData []any
+	err = yaml.Unmarshal(file, &platformData)
+	if err != nil {
+		return nil, err
+	}
+
+	var playbooks []string
+	resources := make(map[string]bool)
+
+	for _, item := range platformData {
+		if m, ok := item.(map[string]any); ok {
+			for k, val := range m {
+				if k == "import_playbook" {
+					playbookName, okV := val.(string)
+					if okV {
+						cleanPath := filepath.Clean(strings.ReplaceAll(playbookName, "../", ""))
+						playbooks = append(playbooks, filepath.Join(i.sourceDir, cleanPath))
+					}
+				}
+
+				extractPlaybookRoles(resources, k, val)
+			}
+		}
+	}
+
+	for _, pl := range playbooks {
+		var playbookData []any
+		file, err = os.ReadFile(pl)
+		if err != nil {
+			return resources, err
+		}
+
+		err = yaml.Unmarshal(file, &playbookData)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, item := range playbookData {
+			if m, ok := item.(map[string]any); ok {
+				for k, val := range m {
+					extractPlaybookRoles(resources, k, val)
+				}
+			}
+		}
+	}
+
+	resourcesWithDependencies := make(map[string]bool)
+	for r := range resources {
+		launchr.Term().Error().Printfln("%s", r)
+		mrn := strings.ReplaceAll(r, ".", "__")
+
+		deps := i.GetDependsOnResources(mrn, -1)
+		launchr.Term().Info().Printfln("%v", deps)
+
+		resourcesWithDependencies[r] = true
+		for d := range deps {
+			resourcesWithDependencies[d] = true
+		}
+	}
+
+	return resourcesWithDependencies, nil
+}
+
+func (i *Inventory) GetUsedVariables() (map[string]bool, error) {
+	for r, v := range i.variableResourcesDependencyMap {
+		launchr.Term().Info().Printfln("%s %v", r, v)
+		if len(v) > 1 {
+			launchr.Term().Error().Printfln("%v", v)
+		}
+	}
+
+	launchr.Term().Info().Printfln("%d", len(i.variableResourcesDependencyMap))
+
+	return nil, nil
+}
+
+func extractPlaybookRoles(result map[string]bool, k string, val any) {
+	if k != "roles" {
+		return
+	}
+
+	if s, ok := val.([]any); ok {
+		for _, i := range s {
+			if v, okV := i.(string); okV {
+				launchr.Term().Info().Printfln("S add %s", v)
+				result[v] = true
+				continue
+			}
+
+			if m, okM := i.(map[string]any); okM {
+				role, okR := m["role"]
+				if !okR {
+					return
+				}
+
+				if r, okV := role.(string); okV {
+					launchr.Term().Info().Printfln("M add %s", r)
+					result[r] = true
+
+					continue
+				}
+			}
+		}
+	}
 }

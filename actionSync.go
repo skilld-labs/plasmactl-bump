@@ -170,11 +170,15 @@ func (s *SyncAction) buildTimeline(buildInv *sync.Inventory) error {
 		return fmt.Errorf("build resource map > %w", err)
 	}
 
+	return fmt.Errorf("emergency exit 3")
+
 	launchr.Log().Info("Populate timeline with resources")
 	err = s.populateTimelineResources(resourcesMap, packagePathMap)
 	if err != nil {
 		return fmt.Errorf("iteraring resources > %w", err)
 	}
+
+	return fmt.Errorf("emergency exit 3")
 
 	launchr.Log().Info("Populate timeline with variables")
 	err = s.populateTimelineVars()
@@ -306,6 +310,19 @@ func (s *SyncAction) getResourcesMaps(buildInv *sync.Inventory) (map[string]*syn
 				}
 			}
 		}
+	}
+
+	// Retrieve applications and executors from playbook.
+	// Find their dependencies
+	// Filter out resources which are not used from resources map.
+	_, err = buildInv.GetUsedResources()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, err = buildInv.GetUsedVariables()
+	if err != nil {
+		return nil, nil, err
 	}
 
 	return resourcesMap, packagePathMap, nil
