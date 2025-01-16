@@ -19,11 +19,6 @@ action:
       description: Allow override committed version by current build value
       type: boolean
       default: false
-    - name: show-progress
-      title: Show progress
-      description: Draw progress bar to vizualize current operations (be careful, it hides -v)
-      type: boolean
-      default: false
     - name: vault-pass
       title: Vault password
       description: Password for Ansible Vault

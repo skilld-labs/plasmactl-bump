@@ -7,7 +7,7 @@ require (
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/launchrctl/compose v0.12.1
 	github.com/launchrctl/keyring v0.2.6
-	github.com/launchrctl/launchr v0.16.5-0.20241222204415-24d5b3d7ff0c
+	github.com/launchrctl/launchr v0.16.5-0.20250115083825-4923887b8da4
 	github.com/pterm/pterm v0.12.80
 	github.com/sosedoff/ansible-vault-go v0.2.0
 	github.com/stevenle/topsort v0.2.0

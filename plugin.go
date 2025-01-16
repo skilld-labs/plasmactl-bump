@@ -44,10 +44,14 @@ func (p *Plugin) DiscoverActions(_ context.Context) ([]*action.Action, error) {
 		input := a.Input()
 		doSync := input.Opt("sync").(bool)
 		dryRun := input.Opt("dry-run").(bool)
-		showProgress := input.Opt("show-progress").(bool)
 		allowOverride := input.Opt("allow-override").(bool)
 		vaultpass := input.Opt("vault-pass").(string)
 		last := input.Opt("last").(bool)
+
+		showProgress := false
+		if launchr.Log().Level() == 0 {
+			showProgress = true
+		}
 
 		if !doSync {
 			bumpAction := BumpAction{last: last, dryRun: dryRun}
