@@ -55,8 +55,8 @@ type SyncAction struct {
 	// options.
 	dryRun        bool
 	allowOverride bool
+	showProgress  bool
 	vaultPass     string
-	verbosity     int
 }
 
 type hashStruct struct {
@@ -366,7 +366,7 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 
 		var p *pterm.ProgressbarPrinter
 		var err error
-		if s.verbosity < 1 {
+		if s.showProgress {
 			p, err = pterm.DefaultProgressbar.WithTotal(resources[name].Len()).WithWriter(multi.NewWriter()).Start(fmt.Sprintf("Collecting resources from %s", name))
 			if err != nil {
 				return err
@@ -377,7 +377,7 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	}
 	close(workChan)
 	go func() {
-		if s.verbosity < 1 {
+		if s.showProgress {
 			_, err := multi.Start()
 			if err != nil {
 				errorChan <- fmt.Errorf("error starting multi progress bar: %w", err)
@@ -395,7 +395,7 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	}
 
 	// Sleep to re-render progress bar. Needed to achieve latest state.
-	if s.verbosity < 1 {
+	if s.showProgress {
 		time.Sleep(multi.UpdateDelay)
 		multi.Stop() //nolint
 	}
@@ -616,7 +616,7 @@ func (s *SyncAction) populateTimelineVars() error {
 	errorChan := make(chan error, 1)
 
 	var p *pterm.ProgressbarPrinter
-	if s.verbosity < 1 {
+	if s.showProgress {
 		p, _ = pterm.DefaultProgressbar.WithTotal(len(varsFiles)).WithTitle("Processing variables files").Start()
 	}
 
@@ -980,7 +980,7 @@ func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPro
 	launchr.Log().Info("Propagating versions")
 
 	var p *pterm.ProgressbarPrinter
-	if s.verbosity < 1 {
+	if s.showProgress {
 		p, _ = pterm.DefaultProgressbar.WithTotal(len(sortList)).WithTitle("Updating resources").Start()
 	}
 	for _, key := range sortList {

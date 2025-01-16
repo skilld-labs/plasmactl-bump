@@ -1,0 +1,32 @@
+runtime: plugin
+action:
+  title: Bump
+  description: "Bump or sync versions of updated components"
+  options:
+    - name: sync
+      shorthand: s
+      title: Sync
+      description: Propagate versions of updated components to their dependencies
+      type: boolean
+      default: false
+    - name: dry-run
+      title: Dry-run
+      description: Simulate bump or sync without updating any file
+      type: boolean
+      default: false
+    - name: allow-override
+      title: Allow override
+      description: Allow override committed version by current build value
+      type: boolean
+      default: false
+    - name: vault-pass
+      title: Vault password
+      description: Password for Ansible Vault
+      type: string
+      default: ""
+    - name: last
+      shorthand: l
+      title: Last
+      description: Bump resources modified in last commit only
+      type: boolean
+      default: false
