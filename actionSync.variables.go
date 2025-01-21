@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vbauerster/mpb/v8"
+	"github.com/vbauerster/mpb/v8/decor"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -17,8 +19,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/launchrctl/launchr"
-	"github.com/pterm/pterm"
-
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
 )
 
@@ -52,9 +52,23 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 	workChan := make(chan string, len(varsFiles))
 	errorChan := make(chan error, 1)
 
-	var p *pterm.ProgressbarPrinter
+	//var p *pterm.ProgressbarPrinter
+	var p *mpb.Progress
+	var b *mpb.Bar
 	if s.showProgress {
-		p, _ = pterm.DefaultProgressbar.WithTotal(len(varsFiles)).WithTitle("Processing variables files").Start()
+		//p, _ = pterm.DefaultProgressbar.WithTotal(len(varsFiles)).WithTitle("Processing variables files").Start()
+		p = mpb.New(mpb.WithWidth(64))
+		b = p.New(int64(len(varsFiles)),
+			//mpb.BarStyle().Lbound("╢").Filler("▌").Tip("▌").Padding("░").Rbound("╟"),
+			mpb.BarStyle(),
+			mpb.PrependDecorators(
+				decor.Name("Processing variables files:", decor.WC{C: decor.DindentRight | decor.DextraSpace}),
+				decor.OnComplete(decor.AverageETA(decor.ET_STYLE_GO), "done in "),
+				mpbTimeDecorator(time.Now()),
+				decor.CountersNoUnit(" [%d/%d] "),
+			),
+			mpb.AppendDecorators(decor.Percentage()),
+		)
 	}
 
 	for i := 0; i < maxWorkers; i++ {
@@ -69,7 +83,8 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 					}
 					if err = s.findVariableUpdateTime(varsFile, buildInv, s.domainDir, &mx); err != nil {
 						if p != nil {
-							_, _ = p.Stop()
+							p.Shutdown()
+							//_, _ = p.Stop()
 						}
 
 						select {
@@ -80,8 +95,9 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 						return
 					}
 
-					if p != nil {
-						p.Increment()
+					if b != nil {
+						b.Increment()
+						//p.Increment()
 					}
 
 					wg.Done()
@@ -99,6 +115,7 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 	go func() {
 		wg.Wait()
 		close(errorChan)
+		p.Wait()
 	}()
 
 	for err = range errorChan {

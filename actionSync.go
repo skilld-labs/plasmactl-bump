@@ -3,7 +3,10 @@ package plasmactlbump
 import (
 	"errors"
 	"fmt"
+	"github.com/vbauerster/mpb/v8"
+	"github.com/vbauerster/mpb/v8/decor"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,8 +19,6 @@ import (
 	"github.com/launchrctl/compose/compose"
 	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr"
-	"github.com/pterm/pterm"
-
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
 )
 
@@ -560,13 +561,29 @@ func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPro
 	sort.Strings(sortList)
 	launchr.Log().Info("Propagating versions")
 
-	var p *pterm.ProgressbarPrinter
+	//var p *pterm.ProgressbarPrinter
+	var p *mpb.Progress
+	var b *mpb.Bar
 	if s.showProgress {
-		p, _ = pterm.DefaultProgressbar.WithTotal(len(sortList)).WithTitle("Updating resources").Start()
+		//p, _ = pterm.DefaultProgressbar.WithTotal(len(sortList)).WithTitle("Updating resources").Start()
+		p = mpb.New(mpb.WithWidth(64))
+		b = p.New(int64(len(sortList)),
+			//mpb.BarStyle().Lbound("╢").Filler("▌").Tip("▌").Padding("░").Rbound("╟"),
+			mpb.BarStyle(),
+			mpb.PrependDecorators(
+				decor.Name("Updating resources:", decor.WC{C: decor.DindentRight | decor.DextraSpace}),
+				//decor.OnComplete(decor.AverageETA(decor.ET_STYLE_GO), "done in "),
+				decor.OnComplete(decor.Name("processing... "), "done in "),
+				mpbTimeDecorator(time.Now()),
+				decor.CountersNoUnit(" [%d/%d] "),
+			),
+			mpb.AppendDecorators(decor.Percentage()),
+		)
 	}
 	for _, key := range sortList {
-		if p != nil {
-			p.Increment()
+		if b != nil {
+			//p.Increment()
+			b.Increment()
 		}
 
 		val := updateMap[key]
@@ -579,6 +596,8 @@ func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPro
 		}
 
 		launchr.Log().Info(fmt.Sprintf("%s from %s to %s", r.GetName(), currentVersion, newVersion))
+
+		//time.Sleep(100 * time.Millisecond)
 		if s.dryRun {
 			continue
 		}
@@ -587,6 +606,9 @@ func (s *SyncAction) updateResources(resourceVersionMap map[string]string, toPro
 		if err != nil {
 			return err
 		}
+	}
+	if p != nil {
+		p.Wait()
 	}
 
 	return nil
@@ -619,4 +641,8 @@ func getResourcesMapFrom(dir string) (*sync.OrderedMap[*sync.Resource], error) {
 	rm := inv.GetResourcesMap()
 	rm.SortKeysAlphabetically()
 	return rm, nil
+}
+
+func mpbTimeDecorator(t time.Time, wcc ...decor.WC) decor.Decorator {
+	return decor.Any(func(decor.Statistics) string { return fmt.Sprintf("%.2fs", math.RoundToEven(time.Since(t).Seconds())) }, wcc...)
 }

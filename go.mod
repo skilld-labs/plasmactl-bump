@@ -8,9 +8,15 @@ require (
 	github.com/launchrctl/compose v0.14.0
 	github.com/launchrctl/keyring v0.3.0
 	github.com/launchrctl/launchr v0.17.1
-	github.com/pterm/pterm v0.12.80
 	github.com/sosedoff/ansible-vault-go v0.2.0
 	github.com/stevenle/topsort v0.2.0
+	github.com/vbauerster/mpb/v8 v8.9.1
+)
+
+require (
+	github.com/VividCortex/ewma v1.2.0 // indirect
+	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
+	github.com/pterm/pterm v0.12.80 // indirect
 )
 
 require (

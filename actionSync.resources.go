@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vbauerster/mpb/v8"
+	"github.com/vbauerster/mpb/v8/decor"
 	"io"
 	"log/slog"
 	"runtime"
@@ -15,8 +17,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/launchrctl/launchr"
-	"github.com/pterm/pterm"
-
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/repository"
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
 )
@@ -46,7 +46,11 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	maxWorkers := min(runtime.NumCPU(), len(packagePathMap))
 	workChan := make(chan map[string]any, len(packagePathMap))
 
-	multi := pterm.DefaultMultiPrinter
+	//multi := pterm.DefaultMultiPrinter
+	p := mpb.New(
+		mpb.WithWaitGroup(&wg),
+		mpb.WithWidth(64),
+	)
 
 	for i := 0; i < maxWorkers; i++ {
 		go func(workerID int) {
@@ -61,7 +65,8 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 
 					name := domain["name"].(string)
 					path := domain["path"].(string)
-					pb := domain["pb"].(*pterm.ProgressbarPrinter)
+					//pb := domain["pb"].(*pterm.ProgressbarPrinter)
+					pb := domain["pb"].(*mpb.Bar)
 
 					if err := s.findResourcesChangeTime(ctx, resources[name], path, &mx, pb); err != nil {
 						select {
@@ -85,27 +90,47 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 
 		wg.Add(1)
 
-		var p *pterm.ProgressbarPrinter
-		var err error
+		//var p *pterm.ProgressbarPrinter
+		var b *mpb.Bar
+		//var err error
 		if s.showProgress {
-			p, err = pterm.DefaultProgressbar.WithTotal(resources[name].Len()).WithWriter(multi.NewWriter()).Start(fmt.Sprintf("Collecting resources from %s", name))
-			if err != nil {
-				return err
-			}
+			//p, err = pterm.DefaultProgressbar.WithTotal(resources[name].Len()).WithWriter(multi.NewWriter()).Start(fmt.Sprintf("Collecting resources from %s", name))
+			//if err != nil {
+			//	return err
+			//}
+
+			b = p.AddBar(int64(resources[name].Len()),
+				mpb.PrependDecorators(
+					// simple name decorator
+					decor.Name(fmt.Sprintf("Collecting resources from %s", name)),
+					// decor.DSyncWidth bit enables column width synchronization
+					decor.Percentage(decor.WCSyncSpace),
+				),
+				mpb.AppendDecorators(
+					// replace ETA decorator with "done" message, OnComplete event
+					decor.OnComplete(
+						// ETA decorator with ewma age of 30
+						decor.EwmaETA(decor.ET_STYLE_GO, 30, decor.WCSyncWidth), "done",
+					),
+				),
+			)
 		}
 
-		workChan <- map[string]any{"name": name, "path": path, "pb": p}
+		workChan <- map[string]any{"name": name, "path": path, "pb": b}
 	}
 	close(workChan)
 	go func() {
 		if s.showProgress {
-			_, err := multi.Start()
-			if err != nil {
-				errorChan <- fmt.Errorf("error starting multi progress bar: %w", err)
-			}
+			//_, err := multi.Start()
+			//if err != nil {
+			//	errorChan <- fmt.Errorf("error starting multi progress bar: %w", err)
+			//}
+			p.Wait()
+		} else {
+			wg.Wait()
 		}
 
-		wg.Wait()
+		//wg.Wait()
 		close(errorChan)
 	}()
 
@@ -116,10 +141,10 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	}
 
 	// Sleep to re-render progress bar. Needed to achieve latest state.
-	if s.showProgress {
-		time.Sleep(multi.UpdateDelay)
-		_, _ = multi.Stop()
-	}
+	//if s.showProgress {
+	//	time.Sleep(multi.UpdateDelay)
+	//	_, _ = multi.Stop()
+	//}
 
 	return nil
 }
@@ -222,7 +247,7 @@ func collectResourcesCommits(r *git.Repository, beforeDate string) (*sync.Ordere
 	return groups, hashes, nil
 }
 
-func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResources *sync.OrderedMap[*sync.Resource], gitPath string, mx *async.Mutex, p *pterm.ProgressbarPrinter) error {
+func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResources *sync.OrderedMap[*sync.Resource], gitPath string, mx *async.Mutex, p *mpb.Bar) error {
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
@@ -251,7 +276,8 @@ func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 					}
 					if err = s.processResource(r, groups, commitsMap, repo, gitPath, mx); err != nil {
 						if p != nil {
-							_, _ = p.Stop()
+							p.Abort(true)
+							//	//_, _ = p.Stop()
 						}
 
 						select {
