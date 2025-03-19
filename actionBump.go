@@ -2,6 +2,7 @@ package plasmactlbump
 
 import (
 	"path/filepath"
+	"strings"
 
 	"github.com/launchrctl/launchr"
 
@@ -71,7 +72,23 @@ func (b *BumpAction) getResource(path string) *sync.Resource {
 		return nil
 	}
 
-	return sync.BuildResourceFromPath(path, ".")
+	platform, kind, role, err := sync.ProcessResourcePath(path)
+	if err != nil || (platform == "" || kind == "" || role == "") {
+		return nil
+	}
+
+	// skip actions dir from triggering bump.
+	resourceActionsDir := filepath.Join(platform, kind, "roles", role, "actions")
+	if strings.Contains(path, resourceActionsDir) {
+		return nil
+	}
+
+	resource := sync.NewResource(sync.PrepareMachineResourceName(platform, kind, role), ".")
+	if !resource.IsValidResource() {
+		return nil
+	}
+
+	return resource
 }
 
 func (b *BumpAction) collectResources(commits []*repository.Commit) map[string]map[string]*sync.Resource {
