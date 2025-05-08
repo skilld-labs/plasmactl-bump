@@ -1,0 +1,103 @@
+name: Commit Workflow
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  no-tty-in-ci:
+    name: Ensure no TTY if user does not need to input anything
+    runs-on: ubuntu-latest
+    env:
+      ARTIFACTS_REPOSITORY_USERNAME: ${{ secrets.ARTIFACTS_REPOSITORY_USERNAME }}
+      ARTIFACTS_REPOSITORY_PASSWORD: ${{ secrets.ARTIFACTS_REPOSITORY_PASSWORD }}
+      ANSIBLE_VAULT_PW: ${{ secrets.ANSIBLE_VAULT_PW }}
+      PLASMACTL_KEYRING_PASSWORD: ${{ secrets.PLASMACTL_KEYRING_PASSWORD }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Commands
+        run: |
+          set -x
+          date
+          pwd
+          whoami
+          make deps build
+          ls -lah bin/launchr
+          mkdir -p .compose/build/
+          mkdir -p .compose/artifacts/
+          tar -czf .compose/artifacts/plasmactl-bump-xxx-plasma-src.tar.gz --exclude=plasmactl-bump-xxx-plasma-src.tar.gz .
+          ./bin/launchr bump --sync --username "xxx" --password "xxx" --vault-pass "xxx" --keyring-passphrase "xxx" --override "xxx" -vvv
+
+  commands-ok:
+    name: Ensure main commands do not fail
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Commands
+        run: |
+          set -x
+          date
+          pwd
+          whoami
+          make deps build
+          ls -lah bin/launchr
+          mkdir -p interaction/softwares/roles/whatever/meta/
+          cat <<EOF > interaction/softwares/roles/whatever/meta/plasma.yaml
+          plasma:
+            author: Whoever
+            categories:
+            - kind.software
+            - machine
+            description: Whatever
+            license: MIT
+            version: 197d7ab84a2b4
+          EOF
+          touch interaction/softwares/roles/whatever/meta/whatever
+          cat interaction/softwares/roles/whatever/meta/whatever
+          git add -A
+          git config --global user.email "citesting@example.com"
+          git config --global user.name "CI testing"
+          git commit -m "CI testing"
+          ./bin/launchr bump
+
+  go-linters:
+    name: Run linters
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Commands
+        run: |
+          set -x
+          date
+          pwd
+          whoami
+          make lint
+
+  go-tests:
+    name: Run Go tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Commands
+        run: |
+          set -x
+          date
+          pwd
+          whoami
+          make test
+
