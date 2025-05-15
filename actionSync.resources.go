@@ -14,7 +14,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
-	"github.com/launchrctl/launchr"
 	"github.com/pterm/pterm"
 
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/repository"
@@ -35,7 +34,7 @@ type CommitsGroup struct {
 	date   time.Time
 }
 
-func (s *SyncAction) populateTimelineResources(resources map[string]*sync.OrderedMap[*sync.Resource], packagePathMap map[string]string) error {
+func (s *syncAction) populateTimelineResources(resources map[string]*sync.OrderedMap[*sync.Resource], packagePathMap map[string]string) error {
 	var wg async.WaitGroup
 	var mx async.Mutex
 
@@ -46,7 +45,8 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	maxWorkers := min(runtime.NumCPU(), len(packagePathMap))
 	workChan := make(chan map[string]any, len(packagePathMap))
 
-	multi := pterm.DefaultMultiPrinter
+	multi := sync.NewMultiPrinter(s.streams.Out())
+	multi.SetWriter(s.Term())
 
 	for i := 0; i < maxWorkers; i++ {
 		go func(workerID int) {
@@ -88,7 +88,8 @@ func (s *SyncAction) populateTimelineResources(resources map[string]*sync.Ordere
 		var p *pterm.ProgressbarPrinter
 		var err error
 		if s.showProgress {
-			p, err = pterm.DefaultProgressbar.WithTotal(resources[name].Len()).WithWriter(multi.NewWriter()).Start(fmt.Sprintf("Collecting resources from %s", name))
+			p = pterm.DefaultProgressbar.WithTotal(resources[name].Len()).WithWriter(multi.NewWriter())
+			p, err = p.Start(fmt.Sprintf("Collecting resources from %s", name))
 			if err != nil {
 				return err
 			}
@@ -222,7 +223,7 @@ func collectResourcesCommits(r *git.Repository, beforeDate string) (*sync.Ordere
 	return groups, hashes, nil
 }
 
-func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResources *sync.OrderedMap[*sync.Resource], gitPath string, mx *async.Mutex, p *pterm.ProgressbarPrinter) error {
+func (s *syncAction) findResourcesChangeTime(ctx context.Context, namespaceResources *sync.OrderedMap[*sync.Resource], gitPath string, mx *async.Mutex, p *pterm.ProgressbarPrinter) error {
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
@@ -294,14 +295,17 @@ func (s *SyncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 	return nil
 }
 
-func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *sync.OrderedMap[*CommitsGroup], commitsMap map[string]map[string]string, _ *git.Repository, gitPath string, mx *async.Mutex) error {
+func (s *syncAction) processResource(resource *sync.Resource, commitsGroups *sync.OrderedMap[*CommitsGroup], commitsMap map[string]map[string]string, _ *git.Repository, gitPath string, mx *async.Mutex) error {
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
 	}
 
 	buildResource := sync.NewResource(resource.GetName(), s.buildDir)
-	currentVersion, err := buildResource.GetVersion()
+	currentVersion, debug, err := buildResource.GetVersion()
+	for _, d := range debug {
+		s.Log().Debug("error", "message", d)
+	}
 	if err != nil {
 		return err
 	}
@@ -349,7 +353,7 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 			return errors.New(msg)
 		}
 
-		launchr.Log().Warn(msg)
+		s.Log().Warn(msg)
 		overridden = true
 	} else {
 		versionHash.hash = headCommit.Hash.String()
@@ -363,7 +367,7 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 		item, ok := commitsMap[currentVersion]
 		//mx.Unlock()
 		if !ok {
-			launchr.Log().Warn(fmt.Sprintf("Latest version of `%s` doesn't match any existing commit", resource.GetName()))
+			s.Log().Warn(fmt.Sprintf("Latest version of `%s` doesn't match any existing commit", resource.GetName()))
 		}
 
 		var commit *object.Commit
@@ -400,7 +404,7 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 	mx.Lock()
 	defer mx.Unlock()
 
-	launchr.Log().Debug("add resource to timeline",
+	s.Log().Debug("add resource to timeline",
 		slog.String("mrn", resource.GetName()),
 		slog.String("commit", versionHash.hash),
 		slog.String("version", currentVersion),
@@ -408,10 +412,10 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 	)
 
 	if versionHash.author != repository.Author && versionHash.author != buildHackAuthor {
-		launchr.Log().Warn(fmt.Sprintf("Latest commit of %s is not a bump commit", resource.GetName()))
+		s.Log().Warn(fmt.Sprintf("Latest commit of %s is not a bump commit", resource.GetName()))
 	}
 
-	tri := sync.NewTimelineResourcesItem(currentVersion, versionHash.hash, versionHash.hashTime)
+	tri := sync.NewTimelineResourcesItem(currentVersion, versionHash.hash, versionHash.hashTime, s.Term())
 	tri.AddResource(resource)
 
 	s.timeline = sync.AddToTimeline(s.timeline, tri)
@@ -419,7 +423,7 @@ func (s *SyncAction) processResource(resource *sync.Resource, commitsGroups *syn
 	return nil
 }
 
-func (s *SyncAction) processAllSections(commitsGroups *sync.OrderedMap[*CommitsGroup], resourceMetaPath, currentVersion string, repo *git.Repository, originalHash string) (*object.Commit, error) {
+func (s *syncAction) processAllSections(commitsGroups *sync.OrderedMap[*CommitsGroup], resourceMetaPath, currentVersion string, repo *git.Repository, originalHash string) (*object.Commit, error) {
 	keys := commitsGroups.Keys()
 	for i := commitsGroups.Len() - 1; i >= 0; i-- {
 		group, _ := commitsGroups.Get(keys[i])
@@ -501,7 +505,7 @@ func (s *SyncAction) processAllSections(commitsGroups *sync.OrderedMap[*CommitsG
 	return nil, nil
 }
 
-func (s *SyncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*CommitsGroup], resourceMetaPath, currentVersion string, repo *git.Repository, originalHash string) (*object.Commit, error) {
+func (s *syncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*CommitsGroup], resourceMetaPath, currentVersion string, repo *git.Repository, originalHash string) (*object.Commit, error) {
 	keys := commitsGroups.Keys()
 	for i := commitsGroups.Len() - 1; i >= 0; i-- {
 		group, _ := commitsGroups.Get(keys[i])
@@ -579,7 +583,7 @@ func (s *SyncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*Commi
 	return nil, nil
 }
 
-func (s *SyncAction) processBumpSection(group *CommitsGroup, resourceMetaPath, currentVersion string, repo *git.Repository, originalHash string) (*object.Commit, error) {
+func (s *syncAction) processBumpSection(group *CommitsGroup, resourceMetaPath, currentVersion string, repo *git.Repository, originalHash string) (*object.Commit, error) {
 	if group.name == headGroupName || len(group.items) == 0 {
 		// Something wrong with process in this case. It's not possible to have version from head commits group.
 		// Either someone can predict future or git history was manipulated. Send to manual search in this case.

@@ -4,8 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/launchrctl/launchr"
-
+	"github.com/launchrctl/launchr/pkg/action"
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/repository"
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
 )
@@ -15,23 +14,26 @@ var unversionedFiles = map[string]struct{}{
 	"README.svg": {},
 }
 
-// BumpAction is an action representing versions update of committed resources.
-type BumpAction struct {
+// bumpAction is an action representing versions update of committed resources.
+type bumpAction struct {
+	action.WithLogger
+	action.WithTerm
+
 	last   bool
 	dryRun bool
 }
 
-func printMemo() {
-	launchr.Log().Info("List of non-versioned files:")
+func (b *bumpAction) printMemo() {
+	b.Log().Info("List of non-versioned files:")
 	for k := range unversionedFiles {
-		launchr.Log().Info(k)
+		b.Log().Info(k)
 	}
 }
 
 // Execute the bump action to update committed resources.
-func (b *BumpAction) Execute() error {
-	launchr.Term().Info().Println("Bumping updated resources...")
-	printMemo()
+func (b *bumpAction) Execute() error {
+	b.Term().Info().Println("Bumping updated resources...")
+	b.printMemo()
 
 	bumper, err := repository.NewBumper()
 	if err != nil {
@@ -39,7 +41,7 @@ func (b *BumpAction) Execute() error {
 	}
 
 	if bumper.IsOwnCommit() {
-		launchr.Term().Info().Println("skipping bump, as the latest commit is already by the bumper tool")
+		b.Term().Info().Println("skipping bump, as the latest commit is already by the bumper tool")
 		return nil
 	}
 
@@ -50,13 +52,13 @@ func (b *BumpAction) Execute() error {
 
 	resources := b.collectResources(commits)
 	if len(resources) == 0 {
-		launchr.Term().Info().Println("No resource to update")
+		b.Term().Info().Println("No resource to update")
 		return nil
 	}
 
 	err = b.updateResources(resources)
 	if err != nil {
-		launchr.Log().Error("There is an error during resources update")
+		b.Log().Error("There is an error during resources update")
 		return err
 	}
 
@@ -67,7 +69,7 @@ func (b *BumpAction) Execute() error {
 	return bumper.Commit()
 }
 
-func (b *BumpAction) getResource(path string) *sync.Resource {
+func (b *bumpAction) getResource(path string) *sync.Resource {
 	if !isVersionableFile(path) {
 		return nil
 	}
@@ -91,7 +93,7 @@ func (b *BumpAction) getResource(path string) *sync.Resource {
 	return resource
 }
 
-func (b *BumpAction) collectResources(commits []*repository.Commit) map[string]map[string]*sync.Resource {
+func (b *bumpAction) collectResources(commits []*repository.Commit) map[string]map[string]*sync.Resource {
 	uniqueVersion := map[string]string{}
 
 	resources := make(map[string]map[string]*sync.Resource)
@@ -111,7 +113,7 @@ func (b *BumpAction) collectResources(commits []*repository.Commit) map[string]m
 				continue
 			}
 
-			launchr.Term().Printfln("Processing resource %s", resource.GetName())
+			b.Term().Printfln("Processing resource %s", resource.GetName())
 			resources[hash][resource.GetName()] = resource
 			uniqueVersion[resource.GetName()] = hash
 		}
@@ -120,25 +122,31 @@ func (b *BumpAction) collectResources(commits []*repository.Commit) map[string]m
 	return resources
 }
 
-func (b *BumpAction) updateResources(hashResourcesMap map[string]map[string]*sync.Resource) error {
+func (b *bumpAction) updateResources(hashResourcesMap map[string]map[string]*sync.Resource) error {
 	if len(hashResourcesMap) == 0 {
 		return nil
 	}
 
-	launchr.Term().Printf("Updating versions:\n")
+	b.Term().Printf("Updating versions:\n")
 	for version, resources := range hashResourcesMap {
 		for mrn, r := range resources {
-			currentVersion, err := r.GetVersion()
+			currentVersion, debug, err := r.GetVersion()
+			for _, d := range debug {
+				b.Log().Debug("error", "message", d)
+			}
 			if err != nil {
 				return err
 			}
 
-			launchr.Term().Printfln("- %s from %s to %s", mrn, currentVersion, version)
+			b.Term().Printfln("- %s from %s to %s", mrn, currentVersion, version)
 			if b.dryRun {
 				continue
 			}
 
-			err = r.UpdateVersion(version)
+			debug, err = r.UpdateVersion(version)
+			for _, d := range debug {
+				b.Log().Debug("error", "message", d)
+			}
 			if err != nil {
 				return err
 			}

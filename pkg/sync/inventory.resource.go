@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/launchrctl/launchr"
 	"gopkg.in/yaml.v3"
 )
 
@@ -99,31 +98,32 @@ func (r *Resource) BuildMetaPath() string {
 }
 
 // GetVersion retrieves the version of the resource from the plasma.yaml
-func (r *Resource) GetVersion() (string, error) {
+func (r *Resource) GetVersion() (string, []string, error) {
+	var debug []string
 	metaFile := r.getRealMetaPath()
 	if _, err := os.Stat(metaFile); err == nil {
 		data, errRead := os.ReadFile(filepath.Clean(metaFile))
 		if errRead != nil {
-			launchr.Log().Debug("error", "error", errRead)
-			return "", fmt.Errorf(tplVersionGet, metaFile)
+			debug = append(debug, errRead.Error())
+			return "", debug, fmt.Errorf(tplVersionGet, metaFile)
 		}
 
 		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
-			launchr.Log().Debug("error", "error", errUnmarshal)
-			return "", fmt.Errorf(tplVersionGet, metaFile)
+			debug = append(debug, errUnmarshal.Error())
+			return "", debug, fmt.Errorf(tplVersionGet, metaFile)
 		}
 
 		version := GetMetaVersion(meta)
 		if version == "" {
-			launchr.Log().Warn(fmt.Sprintf("Empty meta file %s version, return empty string as version", metaFile))
+			debug = append(debug, fmt.Sprintf("Empty meta file %s version, return empty string as version", metaFile))
 		}
 
-		return version, nil
+		return version, debug, nil
 	}
 
-	return "", fmt.Errorf(tplVersionGet, metaFile)
+	return "", debug, fmt.Errorf(tplVersionGet, metaFile)
 }
 
 // GetMetaVersion searches for version in meta data.
@@ -145,36 +145,39 @@ func GetMetaVersion(meta map[string]any) string {
 }
 
 // GetBaseVersion returns resource version without `-` if any.
-func (r *Resource) GetBaseVersion() (string, string, error) {
-	version, err := r.GetVersion()
+func (r *Resource) GetBaseVersion() (string, string, []string, error) {
+	var debug []string
+	version, debugMessages, err := r.GetVersion()
+	debug = append(debug, debugMessages...)
 	if err != nil {
-		return "", "", err
+		return "", "", debug, err
 	}
 
 	split := strings.Split(version, "-")
 	if len(split) > 2 {
-		launchr.Term().Warning().Printfln("Resource %s has incorrect version format %s", version, r.GetName())
+		debug = append(debug, fmt.Sprintf("Resource %s has incorrect format %s", r.GetName(), version))
 	}
 
-	return split[0], version, nil
+	return split[0], version, debug, nil
 }
 
 // UpdateVersion updates the version of the resource in the plasma.yaml file
-func (r *Resource) UpdateVersion(version string) error {
+func (r *Resource) UpdateVersion(version string) ([]string, error) {
+	var debug []string
 	metaFilepath := r.getRealMetaPath()
 	if _, err := os.Stat(metaFilepath); err == nil {
 		data, errRead := os.ReadFile(filepath.Clean(metaFilepath))
 		if errRead != nil {
-			launchr.Log().Debug("error", "error", errRead)
-			return fmt.Errorf(tplVersionSet, metaFilepath)
+			debug = append(debug, errRead.Error())
+			return debug, fmt.Errorf(tplVersionSet, metaFilepath)
 		}
 
 		var b bytes.Buffer
 		var meta map[string]any
 		errUnmarshal := yaml.Unmarshal(data, &meta)
 		if errUnmarshal != nil {
-			launchr.Log().Debug("error", "error", errRead)
-			return fmt.Errorf(tplVersionSet, metaFilepath)
+			debug = append(debug, errUnmarshal.Error())
+			return debug, fmt.Errorf(tplVersionSet, metaFilepath)
 		}
 
 		if plasma, ok := meta["plasma"].(map[string]any); ok {
@@ -187,20 +190,20 @@ func (r *Resource) UpdateVersion(version string) error {
 		yamlEncoder.SetIndent(2)
 		errEncode := yamlEncoder.Encode(&meta)
 		if errEncode != nil {
-			launchr.Log().Debug("error", "error", errEncode)
-			return fmt.Errorf(tplVersionSet, metaFilepath)
+			debug = append(debug, errEncode.Error())
+			return debug, fmt.Errorf(tplVersionSet, metaFilepath)
 		}
 
 		errWrite := os.WriteFile(metaFilepath, b.Bytes(), 0600)
 		if errWrite != nil {
-			launchr.Log().Debug("error", "error", errWrite)
-			return fmt.Errorf(tplVersionSet, metaFilepath)
+			debug = append(debug, errWrite.Error())
+			return debug, fmt.Errorf(tplVersionSet, metaFilepath)
 		}
 
-		return nil
+		return debug, nil
 	}
 
-	return fmt.Errorf(tplVersionSet, metaFilepath)
+	return debug, fmt.Errorf(tplVersionSet, metaFilepath)
 }
 
 // BuildResourceFromPath builds a new instance of Resource from the given path.

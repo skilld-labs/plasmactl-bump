@@ -8,8 +8,10 @@ import (
 )
 
 const (
-	SortAsc  = "asc"  // SortAsc const.
-	SortDesc = "desc" // SortDesc const.
+	// SortAsc const.
+	SortAsc = "asc"
+	// SortDesc const.
+	SortDesc = "desc"
 )
 
 // TimelineItem is interface for storing commit, date and version of propagated items.
@@ -28,15 +30,17 @@ type TimelineResourcesItem struct {
 	commit    string
 	resources *OrderedMap[*Resource]
 	date      time.Time
+	printer   *launchr.Terminal
 }
 
 // NewTimelineResourcesItem returns new instance of [TimelineResourcesItem]
-func NewTimelineResourcesItem(version, commit string, date time.Time) *TimelineResourcesItem {
+func NewTimelineResourcesItem(version, commit string, date time.Time, printer *launchr.Terminal) *TimelineResourcesItem {
 	return &TimelineResourcesItem{
 		version:   version,
 		commit:    commit,
 		date:      date,
 		resources: NewOrderedMap[*Resource](),
+		printer:   printer,
 	}
 }
 
@@ -86,14 +90,14 @@ func (i *TimelineResourcesItem) Merge(item TimelineItem) {
 
 // Print outputs common item info.
 func (i *TimelineResourcesItem) Print() {
-	launchr.Term().Printfln("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
-	launchr.Term().Printf("Resource List:\n")
+	i.printer.Printfln("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
+	i.printer.Printf("Resource List:\n")
 	for _, key := range i.resources.Keys() {
 		v, ok := i.resources.Get(key)
 		if !ok {
 			continue
 		}
-		launchr.Term().Printfln("- %s", v.GetName())
+		i.printer.Printfln("- %s", v.GetName())
 	}
 }
 
@@ -103,15 +107,17 @@ type TimelineVariablesItem struct {
 	commit    string
 	variables *OrderedMap[*Variable]
 	date      time.Time
+	printer   *launchr.Terminal
 }
 
 // NewTimelineVariablesItem returns new instance of [TimelineVariablesItem]
-func NewTimelineVariablesItem(version, commit string, date time.Time) *TimelineVariablesItem {
+func NewTimelineVariablesItem(version, commit string, date time.Time, printer *launchr.Terminal) *TimelineVariablesItem {
 	return &TimelineVariablesItem{
 		version:   version,
 		commit:    commit,
 		date:      date,
 		variables: NewOrderedMap[*Variable](),
+		printer:   printer,
 	}
 }
 
@@ -161,14 +167,14 @@ func (i *TimelineVariablesItem) Merge(item TimelineItem) {
 
 // Print outputs common item info.
 func (i *TimelineVariablesItem) Print() {
-	launchr.Term().Printfln("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
-	launchr.Term().Printf("Variable List:\n")
+	i.printer.Printfln("Version: %s, Date: %s, Commit: %s", i.GetVersion(), i.GetDate(), i.GetCommit())
+	i.printer.Printf("Variable List:\n")
 	for _, key := range i.variables.Keys() {
 		v, ok := i.variables.Get(key)
 		if !ok {
 			continue
 		}
-		launchr.Term().Printfln("- %s", v.GetName())
+		i.printer.Printfln("- %s", v.GetName())
 	}
 }
 

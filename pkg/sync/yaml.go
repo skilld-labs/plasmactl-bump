@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/launchrctl/launchr"
 	vault "github.com/sosedoff/ansible-vault-go"
 	"gopkg.in/yaml.v3"
 )
 
 // LoadVariablesFile loads vars yaml file from path.
-func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any, error) {
+func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any, []string, error) {
 	var data map[string]any
 	var rawData []byte
+	var debugMessages []string
 	var err error
 
 	cleanPath := filepath.Clean(path)
@@ -24,61 +24,62 @@ func LoadVariablesFile(path, vaultPassword string, isVault bool) (map[string]any
 		sourceVault, errDecrypt := vault.DecryptFile(cleanPath, vaultPassword)
 		if errDecrypt != nil {
 			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
-				return data, fmt.Errorf("error decrypting vault %s, password is blank", cleanPath)
+				return data, nil, fmt.Errorf("error decrypting vault %s, password is blank", cleanPath)
 			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
-				return data, fmt.Errorf("error decrypting vault %s, invalid secret format", cleanPath)
+				return data, nil, fmt.Errorf("error decrypting vault %s, invalid secret format", cleanPath)
 			} else if errDecrypt.Error() == invalidPasswordErrText {
-				return data, fmt.Errorf("invalid password for vault '%s'", cleanPath)
+				return data, nil, fmt.Errorf("invalid password for vault '%s'", cleanPath)
 			}
 
-			return data, errDecrypt
+			return data, nil, errDecrypt
 		}
 		rawData = []byte(sourceVault)
 	} else {
 		rawData, err = os.ReadFile(cleanPath)
 		if err != nil {
-			return data, err
+			return data, nil, err
 		}
 	}
 
 	err = yaml.Unmarshal(rawData, &data)
 	if err != nil {
 		if !strings.Contains(err.Error(), "already defined at line") {
-			return data, err
+			return data, nil, err
 		}
 
 		var duplicates map[string]bool
-		data, duplicates, err = UnmarshallFixDuplicates(rawData)
+		data, duplicates, debugMessages, err = UnmarshallFixDuplicates(rawData)
 		if err != nil {
-			return data, err
+			return data, nil, err
 		}
 
 		for d := range duplicates {
-			launchr.Log().Debug(fmt.Sprintf("duplicate found for variable %s in file %s, using last occurrence", d, path))
+			debugMessages = append(debugMessages, fmt.Sprintf("duplicate found for variable %s in file %s, using last occurrence", d, path))
 		}
 	}
 
-	return data, err
+	return data, debugMessages, err
 }
 
 // LoadVariablesFileFromBytes loads vars yaml file from bytes input.
-func LoadVariablesFileFromBytes(input []byte, path string, vaultPassword string, isVault bool) (map[string]any, error) {
+func LoadVariablesFileFromBytes(input []byte, path string, vaultPassword string, isVault bool) (map[string]any, []string, error) {
 	var data map[string]any
 	var rawData []byte
+	var debugMessages []string
 	var err error
 
 	if isVault {
 		sourceVault, errDecrypt := vault.Decrypt(string(input), vaultPassword)
 		if errDecrypt != nil {
 			if errors.Is(errDecrypt, vault.ErrEmptyPassword) {
-				return data, fmt.Errorf("error decrypting vaults, password is blank")
+				return data, nil, fmt.Errorf("error decrypting vaults, password is blank")
 			} else if errors.Is(errDecrypt, vault.ErrInvalidFormat) {
-				return data, fmt.Errorf("error decrypting vault, invalid secret format")
+				return data, nil, fmt.Errorf("error decrypting vault, invalid secret format")
 			} else if errDecrypt.Error() == invalidPasswordErrText {
-				return data, fmt.Errorf("invalid password for vault")
+				return data, nil, fmt.Errorf("invalid password for vault")
 			}
 
-			return data, errDecrypt
+			return data, nil, errDecrypt
 		}
 		rawData = []byte(sourceVault)
 	} else {
@@ -88,21 +89,21 @@ func LoadVariablesFileFromBytes(input []byte, path string, vaultPassword string,
 	err = yaml.Unmarshal(rawData, &data)
 	if err != nil {
 		if !strings.Contains(err.Error(), "already defined at line") {
-			return data, err
+			return data, nil, err
 		}
 
 		var duplicates map[string]bool
-		data, duplicates, err = UnmarshallFixDuplicates(rawData)
+		data, duplicates, debugMessages, err = UnmarshallFixDuplicates(rawData)
 		if err != nil {
-			return data, err
+			return data, debugMessages, err
 		}
 
 		for d := range duplicates {
-			launchr.Log().Debug(fmt.Sprintf("duplicate found for variable %s in file %s, using last occurrence", d, path))
+			debugMessages = append(debugMessages, fmt.Sprintf("duplicate found for variable %s in file %s, using last occurrence", d, path))
 		}
 	}
 
-	return data, err
+	return data, debugMessages, err
 }
 
 // LoadYamlFileFromBytes loads yaml file from bytes input.
@@ -117,7 +118,8 @@ func LoadYamlFileFromBytes(input []byte) (map[string]any, error) {
 }
 
 // UnmarshallFixDuplicates handles duplicated values in yaml instead throwing error.
-func UnmarshallFixDuplicates(data []byte) (map[string]any, map[string]bool, error) {
+func UnmarshallFixDuplicates(data []byte) (map[string]any, map[string]bool, []string, error) {
+	var debugMessages []string
 	reader := bytes.NewReader(data)
 	decoder := yaml.NewDecoder(reader)
 
@@ -130,13 +132,13 @@ func UnmarshallFixDuplicates(data []byte) (map[string]any, map[string]bool, erro
 			if err.Error() == "EOF" {
 				break
 			}
-			return nil, nil, fmt.Errorf("error parsing YAML document: %w", err)
+			return nil, nil, debugMessages, fmt.Errorf("error parsing YAML document: %w", err)
 		}
 
 		// Parse each document and merge
-		res, err := recursiveParse(&rootNode, duplicates)
+		res, err := recursiveParse(&rootNode, duplicates, &debugMessages)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, debugMessages, err
 		}
 		doc := res.(map[string]any)
 		for k, v := range doc {
@@ -149,25 +151,25 @@ func UnmarshallFixDuplicates(data []byte) (map[string]any, map[string]bool, erro
 		}
 	}
 
-	return result, duplicates, nil
+	return result, duplicates, debugMessages, nil
 }
 
 // Recursive parsing function to handle YAML data with duplicate keys.
-func recursiveParse(node *yaml.Node, duplicates map[string]bool) (any, error) {
+func recursiveParse(node *yaml.Node, duplicates map[string]bool, debug *[]string) (any, error) {
 	switch node.Kind {
 	case yaml.DocumentNode:
 		if len(node.Content) > 0 {
-			return recursiveParse(node.Content[0], duplicates)
+			return recursiveParse(node.Content[0], duplicates, debug)
 		}
 		return nil, nil
 
 	case yaml.AliasNode:
-		return recursiveParse(node.Alias, duplicates)
+		return recursiveParse(node.Alias, duplicates, debug)
 
 	case yaml.ScalarNode:
 		var value any
 		if err := node.Decode(&value); err != nil {
-			launchr.Term().Warning().Printfln("Failed to decode scalar at line %d, column %d: %v", node.Line, node.Column, err)
+			*debug = append(*debug, fmt.Sprintf("Failed to decode scalar at line %d, column %d: %s", node.Line, node.Column, err.Error()))
 			return node.Value, nil
 		}
 		return value, nil
@@ -175,7 +177,7 @@ func recursiveParse(node *yaml.Node, duplicates map[string]bool) (any, error) {
 	case yaml.SequenceNode:
 		var result []any
 		for _, n := range node.Content {
-			value, err := recursiveParse(n, duplicates)
+			value, err := recursiveParse(n, duplicates, debug)
 			if err != nil {
 				return nil, err
 			}
@@ -191,7 +193,7 @@ func recursiveParse(node *yaml.Node, duplicates map[string]bool) (any, error) {
 			keyNode := node.Content[i]
 			valueNode := node.Content[i+1]
 			key := keyNode.Value
-			value, err := recursiveParse(valueNode, duplicates)
+			value, err := recursiveParse(valueNode, duplicates, debug)
 			if err != nil {
 				return result, err
 			}

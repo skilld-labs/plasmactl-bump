@@ -50,23 +50,22 @@ func (p *Plugin) DiscoverActions(_ context.Context) ([]*action.Action, error) {
 		vaultpass := input.Opt("vault-pass").(string)
 		last := input.Opt("last").(bool)
 
+		log, logLevel, streams, term := getLogger(a)
 		hideProgress := input.Opt("hide-progress").(bool)
-		if launchr.Log().Level() > 0 {
+		if logLevel > 0 {
 			hideProgress = true
 		}
 
 		if !doSync {
-			bumpAction := BumpAction{last: last, dryRun: dryRun}
-			return bumpAction.Execute()
+			bump := bumpAction{last: last, dryRun: dryRun}
+			bump.SetLogger(log)
+			bump.SetTerm(term)
+			return bump.Execute()
 		}
 
-		if !doSync {
-			bumpAction := BumpAction{last: last, dryRun: dryRun}
-			return bumpAction.Execute()
-		}
-
-		syncAction := SyncAction{
+		sync := syncAction{
 			keyring: p.k,
+			streams: streams,
 
 			domainDir:   ".",
 			buildDir:    ".compose/build",
@@ -80,7 +79,9 @@ func (p *Plugin) DiscoverActions(_ context.Context) ([]*action.Action, error) {
 			showProgress:          !hideProgress,
 		}
 
-		err := syncAction.Execute()
+		sync.SetLogger(log)
+		sync.SetTerm(term)
+		err := sync.Execute()
 		if err != nil {
 			return err
 		}
@@ -88,4 +89,20 @@ func (p *Plugin) DiscoverActions(_ context.Context) ([]*action.Action, error) {
 		return nil
 	}))
 	return []*action.Action{a}, nil
+}
+
+func getLogger(a *action.Action) (*launchr.Logger, launchr.LogLevel, launchr.Streams, *launchr.Terminal) {
+	log := launchr.Log()
+	level := log.Level()
+	if rt, ok := a.Runtime().(action.RuntimeLoggerAware); ok {
+		log = rt.LogWith()
+		level = log.Level()
+	}
+
+	term := launchr.Term()
+	if rt, ok := a.Runtime().(action.RuntimeTermAware); ok {
+		term = rt.Term()
+	}
+
+	return log, level, a.Input().Streams(), term
 }

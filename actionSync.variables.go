@@ -16,13 +16,12 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
-	"github.com/launchrctl/launchr"
 	"github.com/pterm/pterm"
 
 	"github.com/skilld-labs/plasmactl-bump/v2/pkg/sync"
 )
 
-func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory) error {
+func (s *syncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 	if s.filterByResourceUsage {
 		// Quick return in case of empty usage pool.
 		usedResources := buildInv.GetUsedResources()
@@ -54,7 +53,7 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 
 	var p *pterm.ProgressbarPrinter
 	if s.showProgress {
-		p, _ = pterm.DefaultProgressbar.WithTotal(len(varsFiles)).WithTitle("Processing variables files").Start()
+		p, _ = pterm.DefaultProgressbar.WithWriter(s.Term()).WithTotal(len(varsFiles)).WithTitle("Processing variables files").Start()
 	}
 
 	for i := 0; i < maxWorkers; i++ {
@@ -110,7 +109,7 @@ func (s *SyncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 	return nil
 }
 
-func (s *SyncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory, gitPath string, mx *async.Mutex) error {
+func (s *syncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory, gitPath string, mx *async.Mutex) error {
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
@@ -122,11 +121,15 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 	}
 
 	var varsYaml map[string]any
+	var debug []string
 	hashesMap := make(map[string]*hashStruct)
 	variablesMap := sync.NewOrderedMap[*sync.Variable]()
 	isVault := sync.IsVaultFile(varsFile)
 
-	varsYaml, err = sync.LoadVariablesFile(filepath.Join(s.buildDir, varsFile), s.vaultPass, isVault)
+	varsYaml, debug, err = sync.LoadVariablesFile(filepath.Join(s.buildDir, varsFile), s.vaultPass, isVault)
+	for _, d := range debug {
+		s.Log().Debug(d)
+	}
 	if err != nil {
 		return err
 	}
@@ -195,12 +198,15 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 			danglingCommit = nil
 		}
 
-		varFile, errIt := loadVariablesFileFromBytes(file, varsFile, s.vaultPass, isVault)
+		varFile, debug, errIt := loadVariablesFileFromBytes(file, varsFile, s.vaultPass, isVault)
+		for _, d := range debug {
+			s.Log().Debug(d)
+		}
 		if errIt != nil {
 			if strings.Contains(errIt.Error(), "did not find expected key") ||
 				strings.Contains(errIt.Error(), "did not find expected comment or line break") ||
 				strings.Contains(errIt.Error(), "could not find expected") {
-				launchr.Log().Warn("Bad YAML structured detected",
+				s.Log().Warn("Bad YAML structured detected",
 					slog.String("file", varsFile),
 					slog.String("commit", c.Hash.String()),
 					slog.String("error", errIt.Error()),
@@ -210,7 +216,7 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 			}
 
 			if strings.Contains(errIt.Error(), "invalid password for vault") {
-				launchr.Log().Warn("Invalid password for vault",
+				s.Log().Warn("Invalid password for vault",
 					slog.String("file", varsFile),
 					slog.String("commit", c.Hash.String()),
 				)
@@ -219,7 +225,7 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 			}
 
 			if strings.Contains(errIt.Error(), "invalid secret format") {
-				launchr.Log().Warn("invalid secret format for vault",
+				s.Log().Warn("invalid secret format for vault",
 					slog.String("file", varsFile),
 					slog.String("commit", c.Hash.String()),
 				)
@@ -274,7 +280,7 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 	for n, hm := range hashesMap {
 		v, _ := variablesMap.Get(n)
 		version := hm.hash[:13]
-		launchr.Log().Debug("add variable to timeline",
+		s.Log().Debug("add variable to timeline",
 			slog.String("variable", v.GetName()),
 			slog.String("version", version),
 			slog.Time("date", hm.hashTime),
@@ -287,10 +293,10 @@ func (s *SyncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 				return errors.New(msg)
 			}
 
-			launchr.Log().Warn(msg)
+			s.Log().Warn(msg)
 		}
 
-		tri := sync.NewTimelineVariablesItem(version, hm.hash, hm.hashTime)
+		tri := sync.NewTimelineVariablesItem(version, hm.hash, hm.hashTime, s.Term())
 		tri.AddVariable(v)
 
 		s.timeline = sync.AddToTimeline(s.timeline, tri)
@@ -303,21 +309,21 @@ func hashString(item string) uint64 {
 	return xxhash.Sum64String(item)
 }
 
-func loadVariablesFileFromBytes(file *object.File, path, vaultPass string, isVault bool) (map[string]any, error) {
+func loadVariablesFileFromBytes(file *object.File, path, vaultPass string, isVault bool) (map[string]any, []string, error) {
 	reader, errIt := file.Blob.Reader()
 	if errIt != nil {
-		return nil, fmt.Errorf("can't read %s > %w", path, errIt)
+		return nil, nil, fmt.Errorf("can't read %s > %w", path, errIt)
 	}
 
 	contents, errIt := io.ReadAll(reader)
 	if errIt != nil {
-		return nil, fmt.Errorf("can't read %s > %w", path, errIt)
+		return nil, nil, fmt.Errorf("can't read %s > %w", path, errIt)
 	}
 
-	varFile, errIt := sync.LoadVariablesFileFromBytes(contents, path, vaultPass, isVault)
+	varFile, debugMessages, errIt := sync.LoadVariablesFileFromBytes(contents, path, vaultPass, isVault)
 	if errIt != nil {
-		return nil, fmt.Errorf("YAML load %s > %w", path, errIt)
+		return nil, nil, fmt.Errorf("YAML load %s > %w", path, errIt)
 	}
 
-	return varFile, nil
+	return varFile, debugMessages, nil
 }

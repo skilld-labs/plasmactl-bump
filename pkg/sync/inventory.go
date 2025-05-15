@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/launchrctl/launchr"
 	"github.com/stevenle/topsort"
 	"gopkg.in/yaml.v3"
 )
@@ -46,7 +47,8 @@ var Kinds = map[string]struct{}{
 // Inventory represents the inventory used in the application to search and collect resources and variable resources.
 type Inventory struct {
 	// services
-	fc *FilesCrawler
+	fc  *FilesCrawler
+	log *launchr.Logger
 
 	//internal
 	resourcesMap *OrderedMap[*Resource]
@@ -68,10 +70,11 @@ type Inventory struct {
 // NewInventory creates a new instance of Inventory with the provided vault password.
 // It then calls the Init method of the Inventory to build the resources graph and returns
 // the initialized Inventory or any error that occurred during initialization.
-func NewInventory(sourceDir string) (*Inventory, error) {
+func NewInventory(sourceDir string, log *launchr.Logger) (*Inventory, error) {
 	inv := &Inventory{
 		sourceDir:                      sourceDir,
 		fc:                             NewFilesCrawler(sourceDir),
+		log:                            log,
 		resourcesMap:                   NewOrderedMap[*Resource](),
 		requiredBy:                     make(map[string]*OrderedMap[bool]),
 		dependsOn:                      make(map[string]*OrderedMap[bool]),
