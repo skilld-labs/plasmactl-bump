@@ -222,10 +222,15 @@ func (r *Bumper) GetRepoName() (string, error) {
 
 	remoteItems := strings.Split(remote.String(), "\n")
 	fetchRegexp, _ := regexp.Compile(`^origin.*[a-z]+ \(fetch\)$`)
-	repoRegexp, _ := regexp.Compile(`.+/(.+)\.git`)
+	repoRegexp, _ := regexp.Compile(`.+/([^/]+)\.git`)
 	for _, item := range remoteItems {
 		if fetchRegexp.MatchString(strings.TrimSpace(item)) {
-			return repoRegexp.FindStringSubmatch(item)[1], nil
+			subMatch := repoRegexp.FindStringSubmatch(strings.TrimSpace(item))
+			if len(subMatch) != 2 {
+				continue
+			}
+
+			return subMatch[1], nil
 		}
 	}
 
