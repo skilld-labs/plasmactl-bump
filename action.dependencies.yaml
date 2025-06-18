@@ -1,0 +1,32 @@
+runtime: plugin
+action:
+  title: Dependencies
+  description: "Shows dependencies and dependent resources of selected resource"
+  alias:
+    - deps
+  arguments:
+    - name: target
+      title: Target
+      description: Target resource
+      required: true
+  options:
+    - name: source
+      title: Source
+      description: Resources source dir
+      type: string
+      default: ".compose/build"
+    - name: mrn
+      title: MRN
+      description: Show MRN instead of paths
+      type: boolean
+      default: false
+    - name: tree
+      title: Tree
+      description: "Show dependencies in tree-like output"
+      type: boolean
+      default: false
+    - name: depth
+      title: Depth
+      description: "Limit recursion lookup depth"
+      type: integer
+      default: 99
