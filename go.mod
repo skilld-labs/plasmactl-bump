@@ -6,10 +6,10 @@ require (
 	atomicgo.dev/cursor v0.2.0
 	atomicgo.dev/schedule v0.1.0
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/go-git/go-git/v5 v5.16.2
-	github.com/launchrctl/compose v0.15.2
-	github.com/launchrctl/keyring v0.6.3-0.20250929200009-6576810189ec
-	github.com/launchrctl/launchr v0.21.3-0.20250928195706-4543b7a29604
+	github.com/go-git/go-git/v5 v5.16.3
+	github.com/launchrctl/compose v0.15.3-0.20251007094733-cd5ebbbdf53b
+	github.com/launchrctl/keyring v0.7.0
+	github.com/launchrctl/launchr v0.22.0
 	github.com/pterm/pterm v0.12.81
 	github.com/sosedoff/ansible-vault-go v0.2.0
 	github.com/stevenle/topsort v0.2.0
