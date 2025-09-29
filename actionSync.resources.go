@@ -663,7 +663,7 @@ func getFileHashFromCommit(c *object.Commit, path string) (string, *object.File,
 }
 
 func loadYamlFileFromBytes(file *object.File, path string) (map[string]any, error) {
-	reader, errIt := file.Blob.Reader()
+	reader, errIt := file.Reader()
 	if errIt != nil {
 		return nil, fmt.Errorf("can't read %s > %w", path, errIt)
 	}
