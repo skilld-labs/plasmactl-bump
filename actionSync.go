@@ -115,7 +115,7 @@ func (s *syncAction) ensureVaultpassExists() error {
 		s.saveKeyring = true
 	}
 
-	s.vaultPass = keyValueItem.Value
+	s.vaultPass = keyValueItem.Value.(string)
 
 	return nil
 }
