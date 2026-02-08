@@ -110,7 +110,7 @@ func (s *syncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 }
 
 func (s *syncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory, gitPath string, mx *async.Mutex) error {
-	repo, err := git.PlainOpen(gitPath)
+	repo, err := git.PlainOpenWithOptions(gitPath, &git.PlainOpenOptions{EnableDotGitCommonDir: true})
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
 	}

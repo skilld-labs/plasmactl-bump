@@ -224,7 +224,7 @@ func collectResourcesCommits(r *git.Repository, beforeDate string) (*sync.Ordere
 }
 
 func (s *syncAction) findResourcesChangeTime(ctx context.Context, namespaceResources *sync.OrderedMap[*sync.Resource], gitPath string, mx *async.Mutex, p *pterm.ProgressbarPrinter) error {
-	repo, err := git.PlainOpen(gitPath)
+	repo, err := git.PlainOpenWithOptions(gitPath, &git.PlainOpenOptions{EnableDotGitCommonDir: true})
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
 	}
@@ -296,7 +296,7 @@ func (s *syncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 }
 
 func (s *syncAction) processResource(resource *sync.Resource, commitsGroups *sync.OrderedMap[*CommitsGroup], commitsMap map[string]map[string]string, _ *git.Repository, gitPath string, mx *async.Mutex) error {
-	repo, err := git.PlainOpen(gitPath)
+	repo, err := git.PlainOpenWithOptions(gitPath, &git.PlainOpenOptions{EnableDotGitCommonDir: true})
 	if err != nil {
 		return fmt.Errorf("%s - %w", gitPath, err)
 	}

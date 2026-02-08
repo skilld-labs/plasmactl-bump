@@ -38,7 +38,7 @@ type Commit struct {
 
 // NewBumper returns new instance of [Bumper].
 func NewBumper() (*Bumper, error) {
-	r, err := git.PlainOpen("./")
+	r, err := git.PlainOpenWithOptions("./", &git.PlainOpenOptions{EnableDotGitCommonDir: true})
 	if err != nil {
 		return nil, err
 	}
