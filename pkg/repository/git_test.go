@@ -285,10 +285,13 @@ func TestPlainOpenWithOptionsWorktree(t *testing.T) {
 	}
 
 	count := 0
-	_ = cIter.ForEach(func(c *object.Commit) error {
+	err = cIter.ForEach(func(c *object.Commit) error {
 		count++
 		return nil
 	})
+	if err != nil {
+		t.Fatalf("Log.ForEach in worktree: %v", err)
+	}
 
 	if count == 0 {
 		t.Error("expected at least one commit from log iteration")
@@ -388,7 +391,7 @@ func TestBumpWorkflowInWorktree(t *testing.T) {
 	}
 
 	var bumperCommits, devCommits int
-	_ = cIter.ForEach(func(c *object.Commit) error {
+	err = cIter.ForEach(func(c *object.Commit) error {
 		if c.Author.Name == Author {
 			bumperCommits++
 		} else {
@@ -396,6 +399,9 @@ func TestBumpWorkflowInWorktree(t *testing.T) {
 		}
 		return nil
 	})
+	if err != nil {
+		t.Fatalf("Log.ForEach: %v", err)
+	}
 
 	if bumperCommits != 1 {
 		t.Errorf("expected 1 bumper commit, got %d", bumperCommits)
@@ -414,7 +420,7 @@ func TestBumpWorkflowInWorktree(t *testing.T) {
 	var prevCommit *object.Commit
 	diffFound := false
 
-	_ = cIter.ForEach(func(c *object.Commit) error {
+	err = cIter.ForEach(func(c *object.Commit) error {
 		if prevCommit == nil {
 			prevCommit = c
 			return nil
@@ -442,6 +448,9 @@ func TestBumpWorkflowInWorktree(t *testing.T) {
 		prevCommit = c
 		return storer.ErrStop
 	})
+	if err != nil {
+		t.Fatalf("Log.ForEach diff: %v", err)
+	}
 
 	if !diffFound {
 		t.Error("expected to find diffs between commits")

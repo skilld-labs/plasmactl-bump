@@ -250,7 +250,7 @@ func (s *syncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 					if !ok {
 						return
 					}
-					if err = s.processResource(r, groups, commitsMap, repo, gitPath, mx); err != nil {
+					if err = s.processResource(r, groups, commitsMap, repo, mx); err != nil {
 						if p != nil {
 							_, _ = p.Stop()
 						}
@@ -295,12 +295,7 @@ func (s *syncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 	return nil
 }
 
-func (s *syncAction) processResource(resource *sync.Resource, commitsGroups *sync.OrderedMap[*CommitsGroup], commitsMap map[string]map[string]string, _ *git.Repository, gitPath string, mx *async.Mutex) error {
-	repo, err := git.PlainOpenWithOptions(gitPath, &git.PlainOpenOptions{EnableDotGitCommonDir: true})
-	if err != nil {
-		return fmt.Errorf("%s - %w", gitPath, err)
-	}
-
+func (s *syncAction) processResource(resource *sync.Resource, commitsGroups *sync.OrderedMap[*CommitsGroup], commitsMap map[string]map[string]string, repo *git.Repository, mx *async.Mutex) error {
 	buildResource := sync.NewResource(resource.GetName(), s.buildDir)
 	currentVersion, debug, err := buildResource.GetVersion()
 	for _, d := range debug {
