@@ -41,6 +41,11 @@ func (s *syncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 		varsFiles = append(varsFiles, paths...)
 	}
 
+	repo, err := git.PlainOpenWithOptions(s.domainDir, &git.PlainOpenOptions{EnableDotGitCommonDir: true})
+	if err != nil {
+		return fmt.Errorf("%s - %w", s.domainDir, err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -66,7 +71,7 @@ func (s *syncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 					if !ok {
 						return
 					}
-					if err = s.findVariableUpdateTime(varsFile, buildInv, s.domainDir, &mx); err != nil {
+					if err = s.findVariableUpdateTime(varsFile, buildInv, repo, &mx); err != nil {
 						if p != nil {
 							_, _ = p.Stop()
 						}
@@ -109,12 +114,7 @@ func (s *syncAction) populateTimelineVars(buildInv *sync.Inventory) error {
 	return nil
 }
 
-func (s *syncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory, gitPath string, mx *async.Mutex) error {
-	repo, err := git.PlainOpenWithOptions(gitPath, &git.PlainOpenOptions{EnableDotGitCommonDir: true})
-	if err != nil {
-		return fmt.Errorf("%s - %w", gitPath, err)
-	}
-
+func (s *syncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory, repo *git.Repository, mx *async.Mutex) error {
 	ref, err := repo.Head()
 	if err != nil {
 		return fmt.Errorf("can't get HEAD ref > %w", err)
