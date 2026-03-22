@@ -1,0 +1,26 @@
+# When the latest commit is already by the Bumper, bump should skip without error.
+
+exec git init
+exec git config user.email 'dev@example.com'
+exec git config user.name 'Developer'
+
+exec git add .
+exec git commit -m 'initial state'
+
+env GIT_AUTHOR_NAME=Bumper
+env GIT_AUTHOR_EMAIL=no-reply@skilld.cloud
+env GIT_COMMITTER_NAME=Bumper
+env GIT_COMMITTER_EMAIL=no-reply@skilld.cloud
+exec git commit --allow-empty -m 'versions bump'
+
+exec launchr bump --hide-progress
+stdout 'skipping bump'
+
+-- interaction/softwares/roles/my-role/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- interaction/softwares/roles/my-role/tasks/main.yaml --
+- name: example task
+  debug:
+    msg: hello

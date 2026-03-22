@@ -1,0 +1,71 @@
+# Case 11: lib-a lives in a package; skill-b is in domain and depends on lib-a.
+# After bumping lib-a in the package, compose, sync → skill-b gets propagated version.
+#
+# Layout:
+#   $WORK/src/pkg/   — package source (git repo)
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C src/pkg init
+exec git -C src/pkg config user.email 'dev@example.com'
+exec git -C src/pkg config user.name 'Developer'
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+
+exec git -C src/pkg add .
+exec git -C src/pkg commit -m 'initial state'
+
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# Modify lib-a in the package
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+
+txtproc replace 'msg: lib task' 'msg: lib task v2' src/pkg/interaction/libraries/roles/lib-a/tasks/main.yaml src/pkg/interaction/libraries/roles/lib-a/tasks/main.yaml
+
+exec git -C src/pkg add .
+exec git -C src/pkg commit -m 'update lib-a'
+
+exec sh -c 'cd src/pkg && launchr bump --hide-progress'
+
+! grep 'version: ver1' src/pkg/interaction/libraries/roles/lib-a/meta/plasma.yaml
+
+# skill-b is in domain — not bumped
+grep 'version: ver1' platform/interaction/skills/roles/skill-b/meta/plasma.yaml
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# skill-b should receive propagated version from lib-a's bump
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-b/meta/plasma.yaml
+
+-- src/pkg/interaction/libraries/roles/lib-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- src/pkg/interaction/libraries/roles/lib-a/tasks/main.yaml --
+- name: lib task
+  debug:
+    msg: lib task
+
+-- platform/plasma-compose.yaml --
+dependencies:
+  - name: pkg
+    source:
+      type: path
+      url: ../src/pkg
+
+-- platform/interaction/skills/roles/skill-b/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-b/tasks/dependencies.yaml --
+- name: include lib-a
+  include_role:
+    name: interaction.libraries.lib-a

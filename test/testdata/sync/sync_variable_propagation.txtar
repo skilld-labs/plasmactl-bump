@@ -1,0 +1,48 @@
+# Cases 5-7: a group_vars variable is changed; skill-a uses it via a template.
+# No bump needed: after compose + sync, skill-a gets a propagated version based on the variable change commit.
+#
+# Layout:
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# Update variable value — no bump run, variable changes go straight to sync
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+txtproc replace 'value: original' 'value: updated' platform/interaction/group_vars/all/vars.yaml platform/interaction/group_vars/all/vars.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update test_var'
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# skill-a uses test_var via template → gets propagated version
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-a/meta/plasma.yaml
+
+-- platform/plasma-compose.yaml --
+dependencies: []
+
+-- platform/interaction/group_vars/all/vars.yaml --
+test_var:
+  value: original
+
+-- platform/interaction/skills/roles/skill-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-a/tasks/main.yaml --
+- name: run skill
+  debug:
+    msg: hello
+
+-- platform/interaction/skills/roles/skill-a/templates/config.j2 --
+value: {{ test_var.value }}

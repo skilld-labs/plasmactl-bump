@@ -41,6 +41,9 @@ func (s *syncAction) populateTimelineResources(resources map[string]*sync.Ordere
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// @todo this goroutine-pool pattern (workChan + errorChan + wg + maxWorkers) is duplicated
+	// 4 times across actionSync.go, actionSync.resources.go, actionSync.variables.go and
+	// inventory.variable.go. Consider extracting a generic runWorkers[T] helper.
 	errorChan := make(chan error, 1)
 	maxWorkers := min(runtime.NumCPU(), len(packagePathMap))
 	workChan := make(chan map[string]any, len(packagePathMap))
@@ -236,7 +239,6 @@ func (s *syncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 
 	var wg async.WaitGroup
 	errorChan := make(chan error, 1)
-	//maxWorkers := 3
 	maxWorkers := runtime.NumCPU()
 	resourcesChan := make(chan *sync.Resource, namespaceResources.Len())
 
@@ -250,13 +252,13 @@ func (s *syncAction) findResourcesChangeTime(ctx context.Context, namespaceResou
 					if !ok {
 						return
 					}
-					if err = s.processResource(r, groups, commitsMap, repo, gitPath, mx); err != nil {
+					if errR := s.processResource(r, groups, commitsMap, repo, gitPath, mx); errR != nil {
 						if p != nil {
 							_, _ = p.Stop()
 						}
 
 						select {
-						case errorChan <- err:
+						case errorChan <- errR:
 						default:
 						}
 					}
@@ -311,9 +313,8 @@ func (s *syncAction) processResource(resource *sync.Resource, commitsGroups *syn
 	}
 
 	versionHash := &hashStruct{
-		hash:     buildHackAuthor,
-		hashTime: time.Now(),
-		author:   buildHackAuthor,
+		hashTime:   time.Now(),
+		overridden: true,
 	}
 
 	head, err := repo.Head()
@@ -346,7 +347,6 @@ func (s *syncAction) processResource(resource *sync.Resource, commitsGroups *syn
 	// If override is not allowed, return error.
 	// In other case add new timeline item with overridden version.
 
-	overridden := false
 	if currentVersion != headVersion {
 		msg := fmt.Sprintf("Version of `%s` doesn't match HEAD commit", resource.GetName())
 		if !s.allowOverride {
@@ -354,18 +354,15 @@ func (s *syncAction) processResource(resource *sync.Resource, commitsGroups *syn
 		}
 
 		s.Log().Warn(msg)
-		overridden = true
 	} else {
 		versionHash.hash = headCommit.Hash.String()
 		versionHash.hashTime = headCommit.Author.When
 		versionHash.author = headCommit.Author.Name
+		versionHash.overridden = false
 	}
 
-	if !overridden {
-		// @todo rewrite to concurrent map ?
-		//mx.Lock()
+	if !versionHash.overridden {
 		item, ok := commitsMap[currentVersion]
-		//mx.Unlock()
 		if !ok {
 			s.Log().Warn(fmt.Sprintf("Latest version of `%s` doesn't match any existing commit", resource.GetName()))
 		}
@@ -411,7 +408,7 @@ func (s *syncAction) processResource(resource *sync.Resource, commitsGroups *syn
 		slog.Time("date", versionHash.hashTime),
 	)
 
-	if versionHash.author != repository.Author && versionHash.author != buildHackAuthor {
+	if !versionHash.overridden && versionHash.author != repository.Author {
 		s.Log().Warn(fmt.Sprintf("Latest commit of %s is not a bump commit", resource.GetName()))
 	}
 
@@ -551,11 +548,11 @@ func (s *syncAction) processUnknownSection(commitsGroups *sync.OrderedMap[*Commi
 		if errItem != nil {
 			// How it's possible to not have meta file in commit before bump ?
 			// @todo case looks impossible, maybe makes sense to panic here
-			if errors.Is(err, object.ErrFileNotFound) {
+			if errors.Is(errItem, object.ErrFileNotFound) {
 				return nil, errRunBruteProcess
 			}
 
-			return nil, fmt.Errorf("can't hash meta file from commit %s > %w", itemCommit.Hash.String(), err)
+			return nil, fmt.Errorf("can't hash meta file from commit %s > %w", itemCommit.Hash.String(), errItem)
 		}
 
 		// Hashes don't match, as expected
@@ -623,11 +620,11 @@ func (s *syncAction) processBumpSection(group *CommitsGroup, resourceMetaPath, c
 	if errItem != nil {
 		// How it's possible to not have meta file in commit before bump ?
 		// @todo case looks impossible, maybe makes sense to panic here
-		if errors.Is(err, object.ErrFileNotFound) {
+		if errors.Is(errItem, object.ErrFileNotFound) {
 			return nil, errRunBruteProcess
 		}
 
-		return nil, fmt.Errorf("can't hash meta file from commit %s - %w", itemCommit.Hash.String(), err)
+		return nil, fmt.Errorf("can't hash meta file from commit %s - %w", itemCommit.Hash.String(), errItem)
 	}
 
 	// Hashes don't match, as expected

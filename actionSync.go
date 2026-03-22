@@ -29,7 +29,6 @@ var (
 const (
 	vaultpassKey    = "vaultpass"
 	domainNamespace = "domain"
-	buildHackAuthor = "override"
 )
 
 // syncAction is a type representing a resources version synchronization action.
@@ -60,9 +59,10 @@ type syncAction struct {
 }
 
 type hashStruct struct {
-	hash     string
-	hashTime time.Time
-	author   string
+	hash       string
+	hashTime   time.Time
+	author     string
+	overridden bool // true = version was manually overridden, not sourced from git
 }
 
 // Execute the sync action to propagate resources' versions.
@@ -192,16 +192,15 @@ func (s *syncAction) getResourcesMaps(buildInv *sync.Inventory) (map[string]*syn
 	resourcesMap := make(map[string]*sync.OrderedMap[*sync.Resource])
 	packagePathMap := make(map[string]string)
 
-	plasmaCompose, err := compose.Lookup(os.DirFS(s.domainDir))
+	lock, err := compose.LookupLock(os.DirFS(s.buildDir))
 	if err != nil {
 		return nil, nil, err
 	}
 
 	var priorityOrder []string
-	for _, dep := range plasmaCompose.Dependencies {
-		pkg := dep.ToPackage(dep.Name)
-		packagePathMap[dep.Name] = filepath.Join(s.packagesDir, pkg.GetName(), pkg.GetTarget())
-		priorityOrder = append(priorityOrder, dep.Name)
+	for _, entry := range lock.Packages {
+		packagePathMap[entry.Name] = filepath.Join(s.domainDir, entry.Path)
+		priorityOrder = append(priorityOrder, entry.Name)
 	}
 
 	packagePathMap[domainNamespace] = s.domainDir
@@ -633,21 +632,14 @@ func (s *syncAction) updateResources(resourceVersionMap map[string]string, toPro
 }
 
 func composeVersion(oldVersion string, newVersion string) string {
-	var version string
 	if len(strings.Split(newVersion, "-")) > 1 {
-		version = newVersion
-	} else {
-		split := strings.Split(oldVersion, "-")
-		if len(split) == 1 {
-			version = fmt.Sprintf("%s-%s", oldVersion, newVersion)
-		} else if len(split) > 1 {
-			version = fmt.Sprintf("%s-%s", split[0], newVersion)
-		} else {
-			version = newVersion
-		}
+		return newVersion
 	}
-
-	return version
+	split := strings.Split(oldVersion, "-")
+	if len(split) > 1 {
+		return fmt.Sprintf("%s-%s", split[0], newVersion)
+	}
+	return fmt.Sprintf("%s-%s", oldVersion, newVersion)
 }
 
 func (s *syncAction) getResourcesMapFrom(dir string) (*sync.OrderedMap[*sync.Resource], error) {

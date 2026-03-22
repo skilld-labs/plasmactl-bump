@@ -1,0 +1,45 @@
+# Case 8: a new group_vars/vars.yaml file is added.
+# The creation commit propagates to all resources that use variables from the new file.
+#
+# Layout:
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# Add a new group_vars file with a variable used by skill-a
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+exec sh -c 'mkdir -p platform/interaction/group_vars/newgroup'
+exec sh -c 'printf "new_var:\n  value: hello\n" > platform/interaction/group_vars/newgroup/vars.yaml'
+
+exec git -C platform add .
+exec git -C platform commit -m 'add new group_vars file'
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# skill-a uses new_var via template → gets propagated version from the file-creation commit
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-a/meta/plasma.yaml
+
+-- platform/plasma-compose.yaml --
+dependencies: []
+
+-- platform/interaction/skills/roles/skill-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-a/tasks/main.yaml --
+- name: run skill
+  debug:
+    msg: hello
+
+-- platform/interaction/skills/roles/skill-a/templates/config.j2 --
+value: {{ new_var.value }}

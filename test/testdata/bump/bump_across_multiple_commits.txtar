@@ -1,0 +1,52 @@
+# Several commits after the last bump: bump uses the hash of the most recent commit.
+# lib-a changed in commit A, then again in commit B → bumped to commit B hash.
+
+exec git init
+exec git config user.email 'dev@example.com'
+exec git config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git add .
+exec git commit -m 'initial state'
+
+# First change
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+txtproc replace 'msg: hello' 'msg: world' interaction/softwares/roles/my-role/tasks/main.yaml interaction/softwares/roles/my-role/tasks/main.yaml
+
+exec git add .
+exec git commit -m 'change one'
+
+# Second change in a separate commit
+env GIT_AUTHOR_DATE='2000-01-03T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-03T00:00:00'
+txtproc replace 'msg: world' 'msg: final' interaction/softwares/roles/my-role/tasks/main.yaml interaction/softwares/roles/my-role/tasks/main.yaml
+
+exec git add .
+exec git commit -m 'change two'
+
+exec launchr bump --hide-progress
+
+stdout 'Processing resource interaction__softwares__my-role'
+
+# version must be the hash of the latest commit ('change two'), not 'change one'
+! grep 'version: ver1' interaction/softwares/roles/my-role/meta/plasma.yaml
+grep 'version: [0-9a-f]{13}' interaction/softwares/roles/my-role/meta/plasma.yaml
+
+# verify it matches 'change two' commit (HEAD~1 = bump commit, HEAD~2 = change two)
+exec sh -c 'git log --format=%H HEAD~2..HEAD~1 | cut -c1-13 > /tmp/change_two_hash.txt'
+exec sh -c 'grep -o "[0-9a-f]\{13\}" interaction/softwares/roles/my-role/meta/plasma.yaml > /tmp/ver_hash.txt'
+exec sh -c 'diff /tmp/change_two_hash.txt /tmp/ver_hash.txt'
+
+-- plasma-compose.yaml --
+dependencies: []
+
+-- interaction/softwares/roles/my-role/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- interaction/softwares/roles/my-role/tasks/main.yaml --
+- name: example task
+  debug:
+    msg: hello

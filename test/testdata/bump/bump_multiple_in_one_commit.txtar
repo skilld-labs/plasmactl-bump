@@ -1,0 +1,52 @@
+# Two resources changed in one commit → both get bumped to the same commit hash.
+
+exec git init
+exec git config user.email 'dev@example.com'
+exec git config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git add .
+exec git commit -m 'initial state'
+
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+txtproc replace 'msg: lib-a task' 'msg: lib-a task v2' interaction/libraries/roles/lib-a/tasks/main.yaml interaction/libraries/roles/lib-a/tasks/main.yaml
+txtproc replace 'msg: lib-b task' 'msg: lib-b task v2' interaction/libraries/roles/lib-b/tasks/main.yaml interaction/libraries/roles/lib-b/tasks/main.yaml
+
+exec git add .
+exec git commit -m 'update lib-a and lib-b'
+
+exec launchr bump --hide-progress
+
+# both resources bumped to the same commit hash
+! grep 'version: ver1' interaction/libraries/roles/lib-a/meta/plasma.yaml
+! grep 'version: ver1' interaction/libraries/roles/lib-b/meta/plasma.yaml
+grep 'version: [0-9a-f]{13}' interaction/libraries/roles/lib-a/meta/plasma.yaml
+grep 'version: [0-9a-f]{13}' interaction/libraries/roles/lib-b/meta/plasma.yaml
+
+# versions must be identical (same commit)
+exec sh -c 'grep -o "version: .*" interaction/libraries/roles/lib-a/meta/plasma.yaml > /tmp/va.txt'
+exec sh -c 'grep -o "version: .*" interaction/libraries/roles/lib-b/meta/plasma.yaml > /tmp/vb.txt'
+exec sh -c 'diff /tmp/va.txt /tmp/vb.txt'
+
+-- plasma-compose.yaml --
+dependencies: []
+
+-- interaction/libraries/roles/lib-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- interaction/libraries/roles/lib-a/tasks/main.yaml --
+- name: lib-a task
+  debug:
+    msg: lib-a task
+
+-- interaction/libraries/roles/lib-b/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- interaction/libraries/roles/lib-b/tasks/main.yaml --
+- name: lib-b task
+  debug:
+    msg: lib-b task

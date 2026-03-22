@@ -163,7 +163,7 @@ func (i *Inventory) CalculateVariablesUsage(vaultpass string) error {
 	// Iterate all files to find {{ and/or }}, get these lines
 	// iterate potential lines with vars usage and check each variable in it.
 
-	variableResourcesDependencyMap, err := i.buildVariableResourcesDependencies(keys, false)
+	variableResourcesDependencyMap, err := i.buildVariableResourcesDependencies(keys)
 	if err != nil {
 		return err
 	}
@@ -327,15 +327,6 @@ func findDependencies(group, value string, currentGroupKeys, platformKeys map[st
 	return dependencies
 }
 
-// Helper function to convert map[string]bool to []string
-//func getMapKeys(m map[string]bool) []string {
-//	keys := make([]string, 0, len(m))
-//	for key := range m {
-//		keys = append(keys, key)
-//	}
-//	return keys
-//}
-
 func (i *Inventory) processGroup(ctx context.Context, vaultPass, group string, files []string, groupKeys map[string]map[string]bool, groupVars map[string]map[string]string, mx *sync.Mutex) error {
 	mx.Lock()
 	if _, exists := groupKeys[group]; !exists {
@@ -450,13 +441,6 @@ func (i *Inventory) extractKeysAndVars(data interface{}, group string, groupKeys
 		}
 		mx.Unlock()
 
-		// Recurse into list items
-		//for _, item := range v {
-		//	if test {
-		//		panic(currentKey)
-		//	}
-		//	i.extractKeysAndVars(item, group, groupKeys, groupVars, currentKey, mx)
-		//}
 	case string:
 		if strings.Contains(v, "{{") || strings.Contains(v, "}}") {
 			mx.Lock()
@@ -469,7 +453,7 @@ func (i *Inventory) extractKeysAndVars(data interface{}, group string, groupKeys
 	}
 }
 
-func (i *Inventory) buildVariableResourcesDependencies(groupKeys map[string]map[string]bool, filesOnly bool) (map[string]map[string][]string, error) {
+func (i *Inventory) buildVariableResourcesDependencies(groupKeys map[string]map[string]bool) (map[string]map[string][]string, error) {
 	groupFiles, err := i.fc.FindResourcesFiles("")
 	if err != nil {
 		return nil, err
@@ -499,10 +483,6 @@ func (i *Inventory) buildVariableResourcesDependencies(groupKeys map[string]map[
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	if filesOnly {
-		return reverseDependencyMap, nil
 	}
 
 	varToResourcesDependencyMap := make(map[string]map[string][]string)
@@ -638,6 +618,10 @@ func extractLinesWithVariables(filePath string) ([]string, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		// @todo operator precedence bug: `}}` without `{{` always passes the filter due to missing
+		// parentheses around the OR condition. Fix: add parentheses around (Contains("{{") || Contains("}}")).
+		// Before fixing, verify there are no real cases where {{ and }} appear on separate lines
+		// in Ansible templates (e.g. multiline Jinja2 expressions), as the fix would break those.
 		if len(line) > 0 && !strings.HasPrefix(line, "#") && strings.Contains(line, "{{") || strings.Contains(line, "}}") {
 			linesWithVariables = append(linesWithVariables, line)
 		}

@@ -1,0 +1,77 @@
+# Case 10: two independent bumped resources each propagate to their own dependents.
+# lib-a → skill-b (no relation to lib-c → skill-d).
+# Both pairs propagate independently.
+#
+# Layout:
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+txtproc replace 'msg: lib-a task' 'msg: lib-a task v2' platform/interaction/libraries/roles/lib-a/tasks/main.yaml platform/interaction/libraries/roles/lib-a/tasks/main.yaml
+txtproc replace 'msg: lib-c task' 'msg: lib-c task v2' platform/interaction/libraries/roles/lib-c/tasks/main.yaml platform/interaction/libraries/roles/lib-c/tasks/main.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update lib-a and lib-c'
+
+exec sh -c 'cd platform && launchr bump --hide-progress'
+
+! grep 'version: ver1' platform/interaction/libraries/roles/lib-a/meta/plasma.yaml
+! grep 'version: ver1' platform/interaction/libraries/roles/lib-c/meta/plasma.yaml
+grep 'version: ver1' platform/interaction/skills/roles/skill-b/meta/plasma.yaml
+grep 'version: ver1' platform/interaction/skills/roles/skill-d/meta/plasma.yaml
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# each skill gets the propagated version of its own library
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-b/meta/plasma.yaml
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-d/meta/plasma.yaml
+
+-- platform/plasma-compose.yaml --
+dependencies: []
+
+-- platform/interaction/libraries/roles/lib-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/libraries/roles/lib-a/tasks/main.yaml --
+- name: lib-a task
+  debug:
+    msg: lib-a task
+
+-- platform/interaction/libraries/roles/lib-c/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/libraries/roles/lib-c/tasks/main.yaml --
+- name: lib-c task
+  debug:
+    msg: lib-c task
+
+-- platform/interaction/skills/roles/skill-b/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-b/tasks/dependencies.yaml --
+- name: include lib-a
+  include_role:
+    name: interaction.libraries.lib-a
+
+-- platform/interaction/skills/roles/skill-d/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-d/tasks/dependencies.yaml --
+- name: include lib-c
+  include_role:
+    name: interaction.libraries.lib-c

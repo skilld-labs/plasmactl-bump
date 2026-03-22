@@ -1,0 +1,31 @@
+# Resource file changed in last commit → bump updates meta/plasma.yaml version to commit hash.
+
+exec git init
+exec git config user.email 'dev@example.com'
+exec git config user.name 'Developer'
+
+exec git add .
+exec git commit -m 'initial state'
+
+# Simulate work: modify a resource task file
+txtproc replace 'msg: hello' 'msg: world' interaction/softwares/roles/my-role/tasks/main.yaml interaction/softwares/roles/my-role/tasks/main.yaml
+
+exec git add .
+exec git commit -m 'update my-role task'
+
+exec launchr bump --hide-progress
+
+stdout 'Processing resource interaction__softwares__my-role'
+
+# Version must be updated to 13-char commit hash, not the original ver1
+! grep 'version: ver1' interaction/softwares/roles/my-role/meta/plasma.yaml
+grep 'version: [0-9a-f]{13}' interaction/softwares/roles/my-role/meta/plasma.yaml
+
+-- interaction/softwares/roles/my-role/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- interaction/softwares/roles/my-role/tasks/main.yaml --
+- name: example task
+  debug:
+    msg: hello

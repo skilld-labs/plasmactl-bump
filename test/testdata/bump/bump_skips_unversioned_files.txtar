@@ -1,0 +1,33 @@
+# Changes to README.md and README.svg are excluded from bump — no resource update occurs.
+
+exec git init
+exec git config user.email 'dev@example.com'
+exec git config user.name 'Developer'
+
+exec git add .
+exec git commit -m 'initial state'
+
+# Modify only the excluded file
+txtproc replace 'original readme' 'updated readme' interaction/softwares/roles/my-role/README.md interaction/softwares/roles/my-role/README.md
+
+exec git add .
+exec git commit -m 'update readme'
+
+exec launchr bump --hide-progress
+
+stdout 'No resource to update'
+
+# Version must remain unchanged
+grep 'version: ver1' interaction/softwares/roles/my-role/meta/plasma.yaml
+
+-- interaction/softwares/roles/my-role/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- interaction/softwares/roles/my-role/tasks/main.yaml --
+- name: example task
+  debug:
+    msg: hello
+
+-- interaction/softwares/roles/my-role/README.md --
+original readme
