@@ -1,0 +1,188 @@
+# Complex full scenario combining deep package dependencies, plain variables,
+# vault variables, and variable→variable dependencies.
+#
+# Layout:
+#   $WORK/src/pkg-a/   — func-d (depends on lib-c from pkg-b)
+#   $WORK/src/pkg-b/   — lib-c (will be bumped)
+#   $WORK/platform/    — domain with skill-e, skill-f, group_vars
+#
+# Dependency graph (resources):
+#   lib-c (pkg-b) → func-d (pkg-a) → skill-e (domain)
+#
+# Variable dependencies:
+#   plain_var → skill-e (via templates/config.j2)
+#   vault_secret_var → skill-f (via templates/secret.j2)
+#
+# Timeline (newest first after setup):
+#   2000-01-04  plain_var changed       → skill-e propagated (overrides lib-c chain)
+#   2000-01-03  vault_secret_var changed → skill-f propagated
+#   2000-01-02  lib-c bumped            → func-d, skill-e propagated
+#   2000-01-01  initial state
+#
+# Expected results:
+#   func-d:   ver1-{lib_c_hash}    (propagated from lib-c bump)
+#   skill-e:  ver1-{plain_var_commit_hash}  (plain_var is newer than lib-c chain)
+#   skill-f:  ver1-{vault_commit_hash}      (propagated from vault var change)
+
+exec git -C src/pkg-b init
+exec git -C src/pkg-b config user.email 'dev@example.com'
+exec git -C src/pkg-b config user.name 'Developer'
+
+exec git -C src/pkg-a init
+exec git -C src/pkg-a config user.email 'dev@example.com'
+exec git -C src/pkg-a config user.name 'Developer'
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+
+exec git -C src/pkg-b add .
+exec git -C src/pkg-b commit -m 'initial state'
+
+exec git -C src/pkg-a add .
+exec git -C src/pkg-a commit -m 'initial state'
+
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# Step 1: bump lib-c in pkg-b (oldest change) — simulate bump manually to control commit date
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+
+txtproc replace 'msg: lib-c task' 'msg: lib-c task v2' src/pkg-b/interaction/libraries/roles/lib-c/tasks/main.yaml src/pkg-b/interaction/libraries/roles/lib-c/tasks/main.yaml
+
+exec git -C src/pkg-b add .
+exec git -C src/pkg-b commit -m 'update lib-c'
+
+# Get the commit hash and write it as version (simulating what launchr bump would do)
+exec sh -c 'git -C src/pkg-b log --format="%H" -1 | cut -c1-13 > /tmp/lib_c_hash.txt'
+exec sh -c 'printf "plasma:\n  version: $(cat /tmp/lib_c_hash.txt)\n" > src/pkg-b/interaction/libraries/roles/lib-c/meta/plasma.yaml'
+exec git -C src/pkg-b add .
+exec git -C src/pkg-b -c user.name='Bumper' -c user.email='no-reply@skilld.cloud' commit -m '[bump]'
+
+! grep 'version: ver1' src/pkg-b/interaction/libraries/roles/lib-c/meta/plasma.yaml
+grep 'version: [0-9a-f]{13}' src/pkg-b/interaction/libraries/roles/lib-c/meta/plasma.yaml
+
+# Step 2: change vault variable (skill-f depends on it)
+env GIT_AUTHOR_DATE='2000-01-03T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-03T00:00:00'
+
+cp platform/interaction/group_vars/all/vault_v2.yaml platform/interaction/group_vars/all/vault.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update vault_secret_var'
+
+# Step 3: change plain_var (skill-e depends on it via template; newest → wins over lib-c chain)
+env GIT_AUTHOR_DATE='2000-01-04T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-04T00:00:00'
+
+txtproc replace 'value: original' 'value: updated' platform/interaction/group_vars/all/vars.yaml platform/interaction/group_vars/all/vars.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update plain_var'
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+# verify lock contains both transitive packages
+grep 'name: pkg-b' platform/.compose/build/plasma-compose.lock
+grep 'name: pkg-a' platform/.compose/build/plasma-compose.lock
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# func-d: propagated from lib-c bump (no variable dep on func-d)
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/functions/roles/func-d/meta/plasma.yaml
+
+# skill-e: plain_var change is newest (2000-01-04) → overrides lib-c propagation (2000-01-02)
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-e/meta/plasma.yaml
+
+# skill-f: propagated from vault_secret_var change
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-f/meta/plasma.yaml
+
+# verify skill-e propagated hash matches plain_var commit (not lib-c commit)
+exec sh -c 'git -C platform log --format="%H" -1 HEAD~1 | cut -c1-13 > /tmp/vault_commit.txt'
+exec sh -c 'git -C platform log --format="%H" -1 HEAD | cut -c1-13 > /tmp/plain_commit.txt'
+exec sh -c 'grep -o "[0-9a-f]\{13\}$" platform/.compose/build/interaction/skills/roles/skill-e/meta/plasma.yaml > /tmp/skill_e_hash.txt'
+exec sh -c 'grep -o "[0-9a-f]\{13\}$" platform/.compose/build/interaction/skills/roles/skill-f/meta/plasma.yaml > /tmp/skill_f_hash.txt'
+exec sh -c 'diff /tmp/plain_commit.txt /tmp/skill_e_hash.txt'
+exec sh -c 'diff /tmp/vault_commit.txt /tmp/skill_f_hash.txt'
+
+-- src/pkg-b/interaction/libraries/roles/lib-c/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- src/pkg-b/interaction/libraries/roles/lib-c/tasks/main.yaml --
+- name: lib-c task
+  debug:
+    msg: lib-c task
+
+-- src/pkg-a/plasma-compose.yaml --
+dependencies:
+  - name: pkg-b
+    source:
+      type: path
+      url: ../src/pkg-b
+
+-- src/pkg-a/interaction/functions/roles/func-d/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- src/pkg-a/interaction/functions/roles/func-d/tasks/dependencies.yaml --
+- name: include lib-c
+  include_role:
+    name: interaction.libraries.lib-c
+
+-- platform/plasma-compose.yaml --
+dependencies:
+  - name: pkg-a
+    source:
+      type: path
+      url: ../src/pkg-a
+
+-- platform/interaction/group_vars/all/vars.yaml --
+plain_var:
+  value: original
+
+-- platform/interaction/group_vars/all/vault.yaml --
+$ANSIBLE_VAULT;1.1;AES256
+39333862393031373163646433343062383363373233323839613561343163666164646334363331
+6666616163383131343661616463643138393636393465630a333835653363393963633030613030
+66313238353431386237303237623432313264376163633964373063623338363264633730353864
+3537323263643562380a373364643434613933313239326436326134303730623963656362653263
+61643238303033393733303865306463363032663330333366303265333039653661386664643039
+3539336461383032316134663038326262313038393435626663
+
+-- platform/interaction/group_vars/all/vault_v2.yaml --
+$ANSIBLE_VAULT;1.1;AES256
+66363731363130386233623435363764633034343762373164646661623163613930396265663330
+3165633862396435386230316464323737303066323637650a653834363866303039313739366232
+66663137653965376636336539646136376435316139613165346161626264346638313239353564
+6562343038623632360a633631653739383363316133313831636666353439633263326532323961
+31353665316636376537623133383363373732383563353462346534363436373334393863303165
+3037303832656561353463396466613533326666343266613035
+
+-- platform/interaction/skills/roles/skill-e/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-e/tasks/dependencies.yaml --
+- name: include func-d
+  include_role:
+    name: interaction.functions.func-d
+
+-- platform/interaction/skills/roles/skill-e/templates/config.j2 --
+value: {{ plain_var.value }}
+
+-- platform/interaction/skills/roles/skill-f/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-f/tasks/main.yaml --
+- name: run skill-f
+  debug:
+    msg: hello
+
+-- platform/interaction/skills/roles/skill-f/templates/secret.j2 --
+secret: {{ vault_secret_var.value }}

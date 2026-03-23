@@ -1,0 +1,40 @@
+# A standalone resource with no dependents: sync has nothing to propagate.
+#
+# Layout:
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+txtproc replace 'msg: task' 'msg: task v2' platform/interaction/softwares/roles/standalone/tasks/main.yaml platform/interaction/softwares/roles/standalone/tasks/main.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update standalone'
+
+exec sh -c 'cd platform && launchr bump --hide-progress'
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+stdout 'No version to propagate'
+
+-- platform/plasma-compose.yaml --
+dependencies: []
+
+-- platform/interaction/softwares/roles/standalone/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/softwares/roles/standalone/tasks/main.yaml --
+- name: standalone task
+  debug:
+    msg: task

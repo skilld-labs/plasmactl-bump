@@ -1,0 +1,86 @@
+# Case 14 simplified: lib-a (domain) → func-b → skill-c, both lib-a and func-b are bumped.
+# lib-a bumped first (bump_1), func-b bumped second (bump_2).
+# Expected: func-b gets bump_2 (its own bump overrides propagation from lib-a).
+#           skill-c gets ver1-bump_2 (propagated from func-b, the later bump in its chain).
+#
+# Layout:
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# First bump: update lib-a
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+txtproc replace 'msg: lib task' 'msg: lib task v2' platform/interaction/libraries/roles/lib-a/tasks/main.yaml platform/interaction/libraries/roles/lib-a/tasks/main.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update lib-a'
+
+exec sh -c 'cd platform && launchr bump --hide-progress'
+
+! grep 'version: ver1' platform/interaction/libraries/roles/lib-a/meta/plasma.yaml
+
+# Second bump: update func-b
+env GIT_AUTHOR_DATE='2000-01-03T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-03T00:00:00'
+txtproc replace 'msg: func task' 'msg: func task v2' platform/interaction/functions/roles/func-b/tasks/main.yaml platform/interaction/functions/roles/func-b/tasks/main.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update func-b'
+
+exec sh -c 'cd platform && launchr bump --hide-progress'
+
+! grep 'version: ver1' platform/interaction/functions/roles/func-b/meta/plasma.yaml
+grep 'version: ver1' platform/interaction/skills/roles/skill-c/meta/plasma.yaml
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# func-b was bumped directly → not propagated (it is the source)
+! grep 'version: ver1-' platform/.compose/build/interaction/functions/roles/func-b/meta/plasma.yaml
+
+# skill-c depends on func-b (the later bump) → gets ver1-{func-b bump hash}
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-c/meta/plasma.yaml
+
+-- platform/plasma-compose.yaml --
+dependencies: []
+
+-- platform/interaction/libraries/roles/lib-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/libraries/roles/lib-a/tasks/main.yaml --
+- name: lib task
+  debug:
+    msg: lib task
+
+-- platform/interaction/functions/roles/func-b/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/functions/roles/func-b/tasks/main.yaml --
+- name: func task
+  debug:
+    msg: func task
+
+-- platform/interaction/functions/roles/func-b/tasks/dependencies.yaml --
+- name: include lib-a
+  include_role:
+    name: interaction.libraries.lib-a
+
+-- platform/interaction/skills/roles/skill-c/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-c/tasks/dependencies.yaml --
+- name: include func-b
+  include_role:
+    name: interaction.functions.func-b

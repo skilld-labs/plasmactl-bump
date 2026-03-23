@@ -1,0 +1,67 @@
+# When lib-a and skill-b are bumped in the same commit, they share the same bump hash.
+# In buildPropagationMap both appear in the same timeline entry; skill-b is marked
+# processed before lib-a looks for its dependents → skill-b is never added to toPropagate.
+# Result: "No version to propagate" (skill-b already has the correct version).
+#
+# Layout:
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# Change both lib-a and skill-b in the same commit → bump sets both to the same hash
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+txtproc replace 'msg: lib task' 'msg: lib task v2' platform/interaction/libraries/roles/lib-a/tasks/main.yaml platform/interaction/libraries/roles/lib-a/tasks/main.yaml
+txtproc replace 'msg: skill task' 'msg: skill task v2' platform/interaction/skills/roles/skill-b/tasks/main.yaml platform/interaction/skills/roles/skill-b/tasks/main.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update lib-a and skill-b'
+
+exec sh -c 'cd platform && launchr bump --hide-progress'
+
+! grep 'version: ver1' platform/interaction/libraries/roles/lib-a/meta/plasma.yaml
+! grep 'version: ver1' platform/interaction/skills/roles/skill-b/meta/plasma.yaml
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# skill-b already has the same bump hash as lib-a → nothing to propagate
+stdout 'No version to propagate'
+
+# skill-b keeps its bump hash, no propagated suffix
+! grep 'version: [0-9a-f]{13}-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-b/meta/plasma.yaml
+grep 'version: [0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-b/meta/plasma.yaml
+
+-- platform/plasma-compose.yaml --
+dependencies: []
+
+-- platform/interaction/libraries/roles/lib-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/libraries/roles/lib-a/tasks/main.yaml --
+- name: lib task
+  debug:
+    msg: lib task
+
+-- platform/interaction/skills/roles/skill-b/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-b/tasks/main.yaml --
+- name: skill task
+  debug:
+    msg: skill task
+
+-- platform/interaction/skills/roles/skill-b/tasks/dependencies.yaml --
+- name: include lib-a
+  include_role:
+    name: interaction.libraries.lib-a

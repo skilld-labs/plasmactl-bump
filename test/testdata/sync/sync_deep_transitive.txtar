@@ -1,0 +1,147 @@
+# Deep transitive dependency chain across packages + playbook-filter.
+#
+# Layout:
+#   $WORK/src/pkg-a/   — source of pkg-a (git repo)
+#   $WORK/src/pkg-b/   — source of pkg-b (git repo, transitive dep of pkg-a)
+#   $WORK/platform/    — domain (git repo), compose and bump run here
+#
+# Dependency graph:
+#   skill-e (domain) → func-d (pkg-a) → lib-c (pkg-b)  [in playbook → propagated]
+#   skill-f (domain) → lib-c (pkg-b)                    [NOT in playbook → skipped with --playbook-filter]
+#
+# plasma-compose.yaml (domain) references pkg-a via ../src/pkg-a (relative to platform/).
+# pkg-a's plasma-compose.yaml references pkg-b via ../src/pkg-b (relative to platform/, same CWD).
+# compose copies both into platform/.compose/packages/pkg-a/latest and pkg-b/latest.
+# The lock file lists both (topological order: pkg-b first, then pkg-a).
+# bump --sync reads the lock → sees pkg-b even though domain plasma-compose.yaml only lists pkg-a.
+#
+# Part 1: --playbook-filter=false → both skill-e and skill-f get propagated.
+# Part 2: reset build, rerun sync with --playbook-filter=true → only skill-e (+ dep func-d) propagated.
+
+exec git -C src/pkg-b init
+exec git -C src/pkg-b config user.email 'dev@example.com'
+exec git -C src/pkg-b config user.name 'Developer'
+
+exec git -C src/pkg-a init
+exec git -C src/pkg-a config user.email 'dev@example.com'
+exec git -C src/pkg-a config user.name 'Developer'
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+
+exec git -C src/pkg-b add .
+exec git -C src/pkg-b commit -m 'initial state'
+
+exec git -C src/pkg-a add .
+exec git -C src/pkg-a commit -m 'initial state'
+
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# Bump lib-c in pkg-b (transitive package)
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+
+txtproc replace 'msg: lib-c task' 'msg: lib-c task v2' src/pkg-b/interaction/libraries/roles/lib-c/tasks/main.yaml src/pkg-b/interaction/libraries/roles/lib-c/tasks/main.yaml
+
+exec git -C src/pkg-b add .
+exec git -C src/pkg-b commit -m 'update lib-c'
+
+exec sh -c 'cd src/pkg-b && launchr bump --hide-progress'
+
+! grep 'version: ver1' src/pkg-b/interaction/libraries/roles/lib-c/meta/plasma.yaml
+grep 'version: [0-9a-f]{13}' src/pkg-b/interaction/libraries/roles/lib-c/meta/plasma.yaml
+
+grep 'version: ver1' platform/interaction/skills/roles/skill-e/meta/plasma.yaml
+grep 'version: ver1' platform/interaction/skills/roles/skill-f/meta/plasma.yaml
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+# .compose/packages/ created by compose
+grep 'version: [0-9a-f]{13}' platform/.compose/packages/pkg-b/latest/interaction/libraries/roles/lib-c/meta/plasma.yaml
+
+# lock file must contain both pkg-b (transitive) and pkg-a (direct)
+grep 'name: pkg-b' platform/.compose/build/plasma-compose.lock
+grep 'name: pkg-a' platform/.compose/build/plasma-compose.lock
+
+# Part 1: --playbook-filter=false → both skills propagated
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-e/meta/plasma.yaml
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-f/meta/plasma.yaml
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/functions/roles/func-d/meta/plasma.yaml
+
+# Part 2: reset build and rerun with --playbook-filter=true
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=true --hide-progress'
+
+# skill-e is in playbook → propagated
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-e/meta/plasma.yaml
+# func-d is a dependency of skill-e → also propagated
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/functions/roles/func-d/meta/plasma.yaml
+# skill-f is NOT in playbook → not propagated
+! grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-f/meta/plasma.yaml
+grep 'version: ver1' platform/.compose/build/interaction/skills/roles/skill-f/meta/plasma.yaml
+
+-- src/pkg-b/interaction/libraries/roles/lib-c/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- src/pkg-b/interaction/libraries/roles/lib-c/tasks/main.yaml --
+- name: lib-c task
+  debug:
+    msg: lib-c task
+
+-- src/pkg-a/plasma-compose.yaml --
+dependencies:
+  - name: pkg-b
+    source:
+      type: path
+      url: ../src/pkg-b
+
+-- src/pkg-a/interaction/functions/roles/func-d/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- src/pkg-a/interaction/functions/roles/func-d/tasks/dependencies.yaml --
+- name: include lib-c
+  include_role:
+    name: interaction.libraries.lib-c
+
+-- platform/plasma-compose.yaml --
+dependencies:
+  - name: pkg-a
+    source:
+      type: path
+      url: ../src/pkg-a
+
+-- platform/platform/platform.yaml --
+- import_playbook: ../interaction/interaction.yaml
+
+-- platform/interaction/interaction.yaml --
+- hosts: platform.interaction
+  roles:
+    - interaction.skills.skill-e
+
+-- platform/interaction/skills/roles/skill-e/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-e/tasks/dependencies.yaml --
+- name: include func-d
+  include_role:
+    name: interaction.functions.func-d
+
+-- platform/interaction/skills/roles/skill-f/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-f/tasks/dependencies.yaml --
+- name: include lib-c directly
+  include_role:
+    name: interaction.libraries.lib-c

@@ -1,0 +1,102 @@
+# Namespace priority: lib-a exists in both package and domain.
+# Domain version wins in the build (last-writer-wins in compose).
+# Sync must use the domain git repo for lib-a, not the package git repo.
+# skill-b depends on lib-a → gets domain lib-a bump hash as propagated version.
+#
+# Layout:
+#   $WORK/src/pkg/   — package source (git repo)
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C src/pkg init
+exec git -C src/pkg config user.email 'dev@example.com'
+exec git -C src/pkg config user.name 'Developer'
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+
+exec git -C src/pkg add .
+exec git -C src/pkg commit -m 'initial state'
+
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# Bump lib-a in package first (older)
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+
+txtproc replace 'msg: pkg lib task' 'msg: pkg lib task v2' src/pkg/interaction/libraries/roles/lib-a/tasks/main.yaml src/pkg/interaction/libraries/roles/lib-a/tasks/main.yaml
+
+exec git -C src/pkg add .
+exec git -C src/pkg commit -m 'update lib-a in pkg'
+
+exec sh -c 'cd src/pkg && launchr bump --hide-progress'
+
+! grep 'version: ver1' src/pkg/interaction/libraries/roles/lib-a/meta/plasma.yaml
+
+# Bump lib-a in domain (newer → domain wins in build)
+env GIT_AUTHOR_DATE='2000-01-03T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-03T00:00:00'
+
+txtproc replace 'msg: domain lib task' 'msg: domain lib task v2' platform/interaction/libraries/roles/lib-a/tasks/main.yaml platform/interaction/libraries/roles/lib-a/tasks/main.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update lib-a in domain'
+
+exec sh -c 'cd platform && launchr bump --hide-progress'
+
+! grep 'version: ver1' platform/interaction/libraries/roles/lib-a/meta/plasma.yaml
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+# domain lib-a wins in build (domain is processed last → overrides package)
+grep 'version: [0-9a-f]{13}' platform/.compose/build/interaction/libraries/roles/lib-a/meta/plasma.yaml
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# skill-b gets propagated version from domain lib-a bump
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-b/meta/plasma.yaml
+
+# the propagated hash must match domain lib-a bump, not package bump
+exec sh -c 'grep -o "[0-9a-f]\{13\}" platform/interaction/libraries/roles/lib-a/meta/plasma.yaml > /tmp/domain_hash.txt'
+exec sh -c 'grep -o "[0-9a-f]\{13\}" src/pkg/interaction/libraries/roles/lib-a/meta/plasma.yaml > /tmp/pkg_hash.txt'
+exec sh -c 'grep -o "[0-9a-f]\{13\}" platform/.compose/build/interaction/skills/roles/skill-b/meta/plasma.yaml > /tmp/skill_hash.txt'
+exec sh -c 'diff /tmp/domain_hash.txt /tmp/skill_hash.txt'
+! exec sh -c 'diff /tmp/pkg_hash.txt /tmp/skill_hash.txt'
+
+-- src/pkg/interaction/libraries/roles/lib-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- src/pkg/interaction/libraries/roles/lib-a/tasks/main.yaml --
+- name: pkg lib task
+  debug:
+    msg: pkg lib task
+
+-- platform/plasma-compose.yaml --
+dependencies:
+  - name: pkg
+    source:
+      type: path
+      url: ../src/pkg
+
+-- platform/interaction/libraries/roles/lib-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/libraries/roles/lib-a/tasks/main.yaml --
+- name: domain lib task
+  debug:
+    msg: domain lib task
+
+-- platform/interaction/skills/roles/skill-b/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-b/tasks/dependencies.yaml --
+- name: include lib-a
+  include_role:
+    name: interaction.libraries.lib-a

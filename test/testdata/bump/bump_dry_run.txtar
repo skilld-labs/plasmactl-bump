@@ -1,0 +1,29 @@
+# --dry-run logs what would be changed but does not modify meta/plasma.yaml or create a commit.
+
+exec git init
+exec git config user.email 'dev@example.com'
+exec git config user.name 'Developer'
+
+exec git add .
+exec git commit -m 'initial state'
+
+txtproc replace 'msg: hello' 'msg: world' interaction/softwares/roles/my-role/tasks/main.yaml interaction/softwares/roles/my-role/tasks/main.yaml
+
+exec git add .
+exec git commit -m 'update my-role'
+
+exec launchr bump --dry-run --hide-progress
+
+stdout 'Processing resource interaction__softwares__my-role'
+
+# Version must NOT be written (dry-run)
+grep 'version: ver1' interaction/softwares/roles/my-role/meta/plasma.yaml
+
+-- interaction/softwares/roles/my-role/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- interaction/softwares/roles/my-role/tasks/main.yaml --
+- name: example task
+  debug:
+    msg: hello

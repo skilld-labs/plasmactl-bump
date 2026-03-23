@@ -150,7 +150,7 @@ func (s *syncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 
 		hashesMap[k].hash = fmt.Sprint(v.GetHash())
 		hashesMap[k].hashTime = time.Now()
-		hashesMap[k].author = buildHackAuthor
+		hashesMap[k].overridden = true
 	}
 
 	varsFileHash := ""
@@ -193,6 +193,7 @@ func (s *syncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 				hashesMap[k].hash = danglingCommit.Hash.String()
 				hashesMap[k].hashTime = danglingCommit.Author.When
 				hashesMap[k].author = danglingCommit.Author.Name
+				hashesMap[k].overridden = false
 			}
 
 			danglingCommit = nil
@@ -203,6 +204,8 @@ func (s *syncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 			s.Log().Debug(d)
 		}
 		if errIt != nil {
+			// @todo replace strings.Contains checks with sentinel errors or errors.As once
+			// ansible-vault-go and go-yaml expose typed errors (currently they don't).
 			if strings.Contains(errIt.Error(), "did not find expected key") ||
 				strings.Contains(errIt.Error(), "did not find expected comment or line break") ||
 				strings.Contains(errIt.Error(), "could not find expected") {
@@ -255,6 +258,7 @@ func (s *syncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 			hashesMap[k].hash = c.Hash.String()
 			hashesMap[k].hashTime = c.Author.When
 			hashesMap[k].author = c.Author.Name
+			hashesMap[k].overridden = false
 		}
 
 		return nil
@@ -269,6 +273,7 @@ func (s *syncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 			hashesMap[k].hash = danglingCommit.Hash.String()
 			hashesMap[k].hashTime = danglingCommit.Author.When
 			hashesMap[k].author = danglingCommit.Author.Name
+			hashesMap[k].overridden = false
 		}
 
 		danglingCommit = nil
@@ -287,7 +292,7 @@ func (s *syncAction) findVariableUpdateTime(varsFile string, inv *sync.Inventory
 			slog.String("path", v.GetPath()),
 		)
 
-		if hm.author == buildHackAuthor {
+		if hm.overridden {
 			msg := fmt.Sprintf("Value of `%s` doesn't match HEAD commit", n)
 			if !s.allowOverride {
 				return errors.New(msg)

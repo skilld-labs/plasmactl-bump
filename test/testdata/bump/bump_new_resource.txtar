@@ -1,0 +1,28 @@
+# Case 4: a newly added resource gets bumped.
+
+exec git init
+exec git config user.email 'dev@example.com'
+exec git config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git add .
+exec git commit -m 'initial state'
+
+# Create a new resource that does not exist yet
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+exec sh -c 'mkdir -p interaction/softwares/roles/new-role/meta interaction/softwares/roles/new-role/tasks'
+exec sh -c 'printf "plasma:\n  version: ver1\n" > interaction/softwares/roles/new-role/meta/plasma.yaml'
+exec sh -c 'printf -- "- name: task\n  debug:\n    msg: hello\n" > interaction/softwares/roles/new-role/tasks/main.yaml'
+exec git add .
+exec git commit -m 'add new-role'
+
+exec launchr bump --hide-progress
+
+# new-role receives a commit hash version
+! grep 'version: ver1' interaction/softwares/roles/new-role/meta/plasma.yaml
+grep 'version: [0-9a-f]{13}' interaction/softwares/roles/new-role/meta/plasma.yaml
+
+-- plasma-compose.yaml --
+dependencies: []

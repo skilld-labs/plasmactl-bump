@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	_ "github.com/launchrctl/compose" // manually add compose plugin, good for tests
 	"github.com/launchrctl/keyring"
 	"github.com/launchrctl/launchr"
 	"github.com/launchrctl/launchr/pkg/action"

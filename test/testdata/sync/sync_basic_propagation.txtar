@@ -1,0 +1,60 @@
+# Cases 1+2: lib-a is bumped; skill-b depends on lib-a.
+# After compose + sync, skill-b gets propagated version: ver1-{lib_a_bump_hash}.
+#
+# Layout:
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# Modify lib-a to trigger bump (skill-b is untouched)
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+txtproc replace 'msg: lib task' 'msg: lib task v2' platform/interaction/libraries/roles/lib-a/tasks/main.yaml platform/interaction/libraries/roles/lib-a/tasks/main.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update lib-a'
+
+exec sh -c 'cd platform && launchr bump --hide-progress'
+
+! grep 'version: ver1' platform/interaction/libraries/roles/lib-a/meta/plasma.yaml
+grep 'version: [0-9a-f]{13}' platform/interaction/libraries/roles/lib-a/meta/plasma.yaml
+# skill-b is unchanged
+grep 'version: ver1' platform/interaction/skills/roles/skill-b/meta/plasma.yaml
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# skill-b in build gets propagated version: original_version-bump_hash
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-b/meta/plasma.yaml
+
+# lib-a itself is not in propagation (it is the source, not a dependent)
+! grep 'version: ver1-' platform/.compose/build/interaction/libraries/roles/lib-a/meta/plasma.yaml
+
+-- platform/plasma-compose.yaml --
+dependencies: []
+
+-- platform/interaction/libraries/roles/lib-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/libraries/roles/lib-a/tasks/main.yaml --
+- name: lib task
+  debug:
+    msg: lib task
+
+-- platform/interaction/skills/roles/skill-b/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-b/tasks/dependencies.yaml --
+- name: include lib-a
+  include_role:
+    name: interaction.libraries.lib-a

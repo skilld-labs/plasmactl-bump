@@ -1,0 +1,65 @@
+# --allow-override: build dir has a version that doesn't match HEAD git commit.
+# This happens when a resource was manually edited in place without running bump.
+# Without --allow-override sync errors out; with it sync continues and propagates.
+#
+# Layout:
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# Bump lib-a normally so it has a real commit hash version
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+txtproc replace 'msg: lib task' 'msg: lib task v2' platform/interaction/libraries/roles/lib-a/tasks/main.yaml platform/interaction/libraries/roles/lib-a/tasks/main.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update lib-a'
+
+exec sh -c 'cd platform && launchr bump --hide-progress'
+
+! grep 'version: ver1' platform/interaction/libraries/roles/lib-a/meta/plasma.yaml
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+# Manually overwrite lib-a version in build dir without updating git — mismatch!
+txtproc replace 'version: ' 'version: manually-set-' platform/.compose/build/interaction/libraries/roles/lib-a/meta/plasma.yaml platform/.compose/build/interaction/libraries/roles/lib-a/meta/plasma.yaml
+
+# Without --allow-override sync fails with version mismatch error
+! exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+stdout 'match HEAD commit'
+
+# With --allow-override sync continues using HEAD commit time for the overridden resource
+exec sh -c 'cd platform && launchr bump --sync --allow-override --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# skill-b depends on lib-a and must receive a propagated version based on the overridden lib-a value.
+# The overridden version is "manually-set-<hash>" which already contains "-", so composeVersion
+# passes it through as-is (no additional "ver1-" prefix).
+grep 'version: manually-set-' platform/.compose/build/interaction/skills/roles/skill-b/meta/plasma.yaml
+
+-- platform/plasma-compose.yaml --
+dependencies: []
+
+-- platform/interaction/libraries/roles/lib-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/libraries/roles/lib-a/tasks/main.yaml --
+- name: lib task
+  debug:
+    msg: lib task
+
+-- platform/interaction/skills/roles/skill-b/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-b/tasks/dependencies.yaml --
+- name: include lib-a
+  include_role:
+    name: interaction.libraries.lib-a

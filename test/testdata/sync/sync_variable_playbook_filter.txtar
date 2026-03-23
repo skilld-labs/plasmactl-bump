@@ -1,0 +1,118 @@
+# Test that --playbook-filter=true filters variable propagation:
+# only variables used by resources in playbook trigger propagation.
+#
+# Layout:
+#   platform/ — domain with skill-e (in playbook), skill-f (NOT in playbook), group_vars
+#
+# Variable dependencies:
+#   plain_var → skill-e (via templates/config.j2)      — skill-e IS in playbook
+#   vault_secret_var → skill-f (via templates/secret.j2) — skill-f is NOT in playbook
+#
+# Timeline:
+#   2000-01-03  plain_var changed       → skill-e in playbook → propagated
+#   2000-01-02  vault_secret_var changed → skill-f NOT in playbook → skipped
+#   2000-01-01  initial state
+#
+# Expected with --playbook-filter=true:
+#   skill-e: ver1-{plain_var_commit_hash}   (propagated)
+#   skill-f: ver1 (unchanged — vault var filtered out)
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# Step 1: change vault_secret_var (skill-f depends on it, but skill-f is NOT in playbook)
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+
+cp platform/interaction/group_vars/all/vault_v2.yaml platform/interaction/group_vars/all/vault.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update vault_secret_var'
+
+# Step 2: change plain_var (skill-e depends on it, skill-e IS in playbook)
+env GIT_AUTHOR_DATE='2000-01-03T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-03T00:00:00'
+
+txtproc replace 'value: original' 'value: updated' platform/interaction/group_vars/all/vars.yaml platform/interaction/group_vars/all/vars.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update plain_var'
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=true --hide-progress'
+
+# skill-e: propagated (plain_var is used and skill-e is in playbook)
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-e/meta/plasma.yaml
+
+# skill-f: NOT propagated (vault_secret_var filtered because skill-f not in playbook)
+grep 'version: ver1$' platform/.compose/build/interaction/skills/roles/skill-f/meta/plasma.yaml
+
+# verify skill-e hash matches plain_var commit
+exec sh -c 'git -C platform log --format="%H" -1 HEAD | cut -c1-13 > /tmp/plain_commit.txt'
+exec sh -c 'grep -o "[0-9a-f]\{13\}$" platform/.compose/build/interaction/skills/roles/skill-e/meta/plasma.yaml > /tmp/skill_e_hash.txt'
+exec sh -c 'diff /tmp/plain_commit.txt /tmp/skill_e_hash.txt'
+
+-- platform/plasma-compose.yaml --
+dependencies: []
+
+-- platform/platform/platform.yaml --
+- import_playbook: ../interaction/interaction.yaml
+
+-- platform/interaction/interaction.yaml --
+- hosts: platform.interaction
+  roles:
+    - interaction.skills.skill-e
+
+-- platform/interaction/group_vars/all/vars.yaml --
+plain_var:
+  value: original
+
+-- platform/interaction/group_vars/all/vault.yaml --
+$ANSIBLE_VAULT;1.1;AES256
+39333862393031373163646433343062383363373233323839613561343163666164646334363331
+6666616163383131343661616463643138393636393465630a333835653363393963633030613030
+66313238353431386237303237623432313264376163633964373063623338363264633730353864
+3537323263643562380a373364643434613933313239326436326134303730623963656362653263
+61643238303033393733303865306463363032663330333366303265333039653661386664643039
+3539336461383032316134663038326262313038393435626663
+
+-- platform/interaction/group_vars/all/vault_v2.yaml --
+$ANSIBLE_VAULT;1.1;AES256
+66363731363130386233623435363764633034343762373164646661623163613930396265663330
+3165633862396435386230316464323737303066323637650a653834363866303039313739366232
+66663137653965376636336539646136376435316139613165346161626264346638313239353564
+6562343038623632360a633631653739383363316133313831636666353439633263326532323961
+31353665316636376537623133383363373732383563353462346534363436373334393863303165
+3037303832656561353463396466613533326666343266613035
+
+-- platform/interaction/skills/roles/skill-e/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-e/tasks/main.yaml --
+- name: run skill-e
+  debug:
+    msg: hello
+
+-- platform/interaction/skills/roles/skill-e/templates/config.j2 --
+value: {{ plain_var.value }}
+
+-- platform/interaction/skills/roles/skill-f/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-f/tasks/main.yaml --
+- name: run skill-f
+  debug:
+    msg: hello
+
+-- platform/interaction/skills/roles/skill-f/templates/secret.j2 --
+secret: {{ vault_secret_var.value }}

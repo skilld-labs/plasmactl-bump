@@ -1,0 +1,33 @@
+# Case 3: a resource is removed before bump → bump finds nothing to update.
+
+exec git init
+exec git config user.email 'dev@example.com'
+exec git config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git add .
+exec git commit -m 'initial state'
+
+# Remove the resource (delete meta file so it is no longer a valid resource)
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+exec git rm interaction/softwares/roles/my-role/meta/plasma.yaml
+exec git rm interaction/softwares/roles/my-role/tasks/main.yaml
+exec git commit -m 'remove my-role'
+
+exec launchr bump --hide-progress
+
+stdout 'No resource to update'
+
+-- plasma-compose.yaml --
+dependencies: []
+
+-- interaction/softwares/roles/my-role/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- interaction/softwares/roles/my-role/tasks/main.yaml --
+- name: task
+  debug:
+    msg: hello

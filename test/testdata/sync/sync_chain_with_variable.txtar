@@ -1,0 +1,114 @@
+# Case 16 simplified: lib-a bumped + skill-b (depends on lib-a) also bumped independently
+# + variable changed that skill-b uses via template.
+# Final state: skill-c (depends on skill-b) gets the latest of the two propagations.
+#
+# Timeline (newest first):
+#   variable change commit  → propagates to skill-b, skill-c
+#   skill-b bump            → skill-c gets ver1-skill_b_hash
+#   lib-a bump              → skill-b would get ver1-lib_a_hash, skill-c too
+#                             but skill-b is bumped directly so it is skipped (processed)
+#
+# Expected result in build:
+#   lib-a:   lib_a_hash         (own bump, not propagated)
+#   skill-b: skill_b_hash       (own bump, overrides propagation from lib-a)
+#   skill-c: ver1-var_hash      (variable is newest → overrides skill-b propagation)
+#
+# Layout:
+#   $WORK/platform/  — domain (git repo), compose and bump run here
+
+exec git -C platform init
+exec git -C platform config user.email 'dev@example.com'
+exec git -C platform config user.name 'Developer'
+
+env GIT_AUTHOR_DATE='2000-01-01T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-01T00:00:00'
+exec git -C platform add .
+exec git -C platform commit -m 'initial state'
+
+# First bump: lib-a
+env GIT_AUTHOR_DATE='2000-01-02T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-02T00:00:00'
+txtproc replace 'msg: lib task' 'msg: lib task v2' platform/interaction/libraries/roles/lib-a/tasks/main.yaml platform/interaction/libraries/roles/lib-a/tasks/main.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update lib-a'
+
+exec sh -c 'cd platform && launchr bump --hide-progress'
+
+! grep 'version: ver1' platform/interaction/libraries/roles/lib-a/meta/plasma.yaml
+
+# Second bump: skill-b
+env GIT_AUTHOR_DATE='2000-01-03T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-03T00:00:00'
+txtproc replace 'msg: skill task' 'msg: skill task v2' platform/interaction/skills/roles/skill-b/tasks/main.yaml platform/interaction/skills/roles/skill-b/tasks/main.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update skill-b'
+
+exec sh -c 'cd platform && launchr bump --hide-progress'
+
+! grep 'version: ver1' platform/interaction/skills/roles/skill-b/meta/plasma.yaml
+
+# Variable change (newest) — no bump needed for variables
+env GIT_AUTHOR_DATE='2000-01-04T00:00:00'
+env GIT_COMMITTER_DATE='2000-01-04T00:00:00'
+txtproc replace 'value: original' 'value: updated' platform/interaction/group_vars/all/vars.yaml platform/interaction/group_vars/all/vars.yaml
+
+exec git -C platform add .
+exec git -C platform commit -m 'update test_var'
+
+exec sh -c 'cd platform && launchr compose --interactive=false'
+
+exec sh -c 'cd platform && launchr bump --sync --vault-pass test --keyring-passphrase testpass --playbook-filter=false --hide-progress'
+
+# lib-a is a bump source — not propagated
+! grep 'version: ver1-' platform/.compose/build/interaction/libraries/roles/lib-a/meta/plasma.yaml
+
+# skill-b was bumped directly → not propagated
+! grep 'version: ver1-' platform/.compose/build/interaction/skills/roles/skill-b/meta/plasma.yaml
+
+# skill-c depends on skill-b AND uses the variable (via template).
+# Variable commit is the newest → skill-c gets ver1-{var_commit_hash}
+grep 'version: ver1-[0-9a-f]{13}' platform/.compose/build/interaction/skills/roles/skill-c/meta/plasma.yaml
+
+-- platform/plasma-compose.yaml --
+dependencies: []
+
+-- platform/interaction/group_vars/all/vars.yaml --
+test_var:
+  value: original
+
+-- platform/interaction/libraries/roles/lib-a/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/libraries/roles/lib-a/tasks/main.yaml --
+- name: lib task
+  debug:
+    msg: lib task
+
+-- platform/interaction/skills/roles/skill-b/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-b/tasks/main.yaml --
+- name: skill task
+  debug:
+    msg: skill task
+
+-- platform/interaction/skills/roles/skill-b/tasks/dependencies.yaml --
+- name: include lib-a
+  include_role:
+    name: interaction.libraries.lib-a
+
+-- platform/interaction/skills/roles/skill-c/meta/plasma.yaml --
+plasma:
+  version: ver1
+
+-- platform/interaction/skills/roles/skill-c/tasks/dependencies.yaml --
+- name: include skill-b
+  include_role:
+    name: interaction.skills.skill-b
+
+-- platform/interaction/skills/roles/skill-c/templates/config.j2 --
+value: {{ test_var.value }}
